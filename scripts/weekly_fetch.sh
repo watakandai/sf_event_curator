@@ -2,10 +2,17 @@
 # Weekly fetch job for sf_event_curator. Intended to run from cron.
 #
 # What it does: activates the project's venv (if present), runs `cli fetch`
-# against the DB the dashboard reads from, and appends a timestamped record
-# of the run - including stderr, so per-fetcher failures and the
-# zero-results warning for fragile sources (see cli.py FRAGILE_SOURCES) show
-# up in the log rather than vanishing into cron's default /dev/null.
+# then `cli rank` against the DB the dashboard reads from, and appends a
+# timestamped record of the run - including stderr, so per-fetcher failures
+# and the zero-results warning for fragile sources (see cli.py
+# FRAGILE_SOURCES) show up in the log rather than vanishing into cron's
+# default /dev/null.
+#
+# Ranking: the heuristic pass always runs (offline, free). The LLM pass runs
+# only if RANKER_PROVIDER is set to gemini/anthropic/github-models AND the
+# matching key is in the environment. Cron starts with a near-empty
+# environment, so set both in the crontab itself or source an env file above
+# - otherwise you'll silently get heuristic-only scores.
 #
 # Exit code mirrors the fetch command's, so cron's own failure-mail
 # mechanism (MAILTO=...) fires only if `cli fetch` itself exits non-zero -
@@ -33,6 +40,17 @@ fi
   echo "=== $(date -Iseconds) starting weekly fetch ==="
   python3 -m sf_event_curator.cli fetch
   status=$?
+
+  # Rank even if some fetchers failed - whatever did land is still worth
+  # scoring, and the heuristic pass needs no network at all.
+  python3 -m sf_event_curator.cli rank
+  if [ -n "${RANKER_PROVIDER:-}" ]; then
+    echo "--- LLM ranking via ${RANKER_PROVIDER} ---"
+    python3 -m sf_event_curator.cli rank --llm --provider "$RANKER_PROVIDER"
+  else
+    echo "--- RANKER_PROVIDER unset: heuristic scores only ---"
+  fi
+
   echo "=== $(date -Iseconds) finished, exit code $status ==="
   echo ""
 } >> "$LOG_FILE" 2>&1

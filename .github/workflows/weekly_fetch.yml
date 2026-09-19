@@ -2,25 +2,42 @@ name: Weekly event fetch
 
 # This is the one piece of this project's deployment that GitHub Actions
 # genuinely improves on self-hosting: Actions runners have real outbound
-# internet access, unlike the sandbox this project was originally built and
-# tested in - so this is the first place the DoTheBay scraper (fetchers/
-# dothebay.py) will actually run against the live site rather than a
-# hand-built fixture. Watch the first few runs' logs for it.
+# internet access, so this is where the scraped sources (dothebay, sfrecpark,
+# 19hz) actually run against live sites rather than fixtures.
 #
-# No `pip install` step, deliberately: cli.py, db.py, models.py, and both
-# fetchers are pure standard-library Python - fastapi/uvicorn in
-# requirements.txt are only needed to run the web dashboard, not to fetch
-# or export data. Verified by AST-walking every import in those files.
+# No `pip install` step, deliberately: the CLI, db, models, rankers and all
+# five fetchers are pure standard-library Python - including the LLM ranker,
+# which talks to the provider over urllib. fastapi/uvicorn in
+# requirements.txt are only needed for the local web dashboard.
+#
+# The events database is CACHED between runs rather than rebuilt. That is
+# what makes LLM ranking affordable: scores are keyed by a hash of
+# profile.md + model, so a cached database means each weekly run only pays
+# to score events it has never seen. Losing the cache is harmless - the next
+# run just re-scores everything once.
 
 on:
   schedule:
-    - cron: '0 9 * * MON'  # 9am UTC every Monday - adjust if you want a specific local time
-  workflow_dispatch: {}      # lets you trigger a run manually from the Actions tab
+    - cron: '0 9 * * MON'  # 9am UTC every Monday
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: 'LLM ranker provider (blank = use the RANKER_PROVIDER variable)'
+        required: false
+        type: choice
+        options: ['', 'gemini', 'anthropic', 'github-models']
+        default: ''
+      rescore_all:
+        description: 'Re-score every event, not just new ones'
+        required: false
+        type: boolean
+        default: false
   push:
-    branches: [main]         # so the site has real data after the first merge, not just an empty page
+    branches: [main]
 
 permissions:
   contents: write
+  models: read          # only needed for the github-models provider
 
 jobs:
   fetch-and-export:
@@ -32,11 +49,59 @@ jobs:
         with:
           python-version: '3.12'
 
+      # Rolling cache: the run-number key never hits, so it always restores
+      # the newest previous database via the prefix and then saves a fresh
+      # copy under this run's key.
+      - name: Restore events database
+        uses: actions/cache@v4
+        with:
+          path: /tmp/events.db
+          key: events-db-${{ github.run_number }}
+          restore-keys: events-db-
+
       - name: Fetch events
         run: python -m sf_event_curator.cli --db /tmp/events.db fetch
 
+      - name: Rank (heuristic, always runs)
+        run: python -m sf_event_curator.cli --db /tmp/events.db rank
+
+      # Which provider to use is explicit: set the RANKER_PROVIDER repo
+      # variable (Settings -> Variables) to gemini, anthropic, or
+      # github-models, and add the matching secret. Left unset, the LLM step
+      # is skipped and the site ships heuristic scores only - so a fork with
+      # no keys still works.
+      - name: Resolve ranker provider
+        id: ranker
+        env:
+          REQUESTED: ${{ inputs.provider || vars.RANKER_PROVIDER }}
+          HAS_GEMINI: ${{ secrets.GEMINI_API_KEY != '' }}
+          HAS_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        run: |
+          case "$REQUESTED" in
+            gemini)        [ "$HAS_GEMINI" = true ] || { echo "::warning::RANKER_PROVIDER=gemini but GEMINI_API_KEY is not set; skipping LLM rank"; echo "provider=" >> "$GITHUB_OUTPUT"; exit 0; } ;;
+            anthropic)     [ "$HAS_ANTHROPIC" = true ] || { echo "::warning::RANKER_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set; skipping LLM rank"; echo "provider=" >> "$GITHUB_OUTPUT"; exit 0; } ;;
+            github-models) ;;
+            '')            echo "RANKER_PROVIDER not set - shipping heuristic scores only." ;;
+            *)             echo "::warning::unknown RANKER_PROVIDER '$REQUESTED'; skipping LLM rank"; echo "provider=" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          echo "provider=$REQUESTED" >> "$GITHUB_OUTPUT"
+
+      - name: Rank against profile.md with an LLM
+        if: steps.ranker.outputs.provider != ''
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python -m sf_event_curator.cli --db /tmp/events.db rank --llm \
+            --provider '${{ steps.ranker.outputs.provider }}' \
+            ${{ inputs.rescore_all && '--rescore-all' || '' }} \
+            ${{ vars.RANKER_LIMIT && format('--limit {0}', vars.RANKER_LIMIT) || '' }}
+
       - name: Export to static JSON
-        run: python -m sf_event_curator.cli --db /tmp/events.db export --out docs/data/events.json
+        run: |
+          python -m sf_event_curator.cli --db /tmp/events.db export \
+            --out docs/data/events.json --sort score
 
       - name: Commit and push if the export changed
         uses: stefanzweifel/git-auto-commit-action@v5
