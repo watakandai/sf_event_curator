@@ -149,6 +149,9 @@ EXPORT_FIELDS = (
     "id", "source", "title", "start_ts", "end_ts", "venue", "address",
     "cost", "is_free", "categories", "url", "description", "images",
     "lat", "lon", "score", "score_reason", "scored_by", "date_approx",
+    # The page needs this, not just the ranker: it's how the music filter
+    # decides an event is too big to hide.
+    "notability",
 )
 DESCRIPTION_LIMIT = 280
 

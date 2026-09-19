@@ -22,13 +22,16 @@ See profile.example.md for what's worth including.
 - Outdoor and waterfront things: Ocean Beach bonfires, park concerts,
   anything on the coast.
 - Neighbourhood street fairs and festivals with real local character.
-- Live music in small-to-mid venues.
 - The big annual Bay Area events I'd regret missing - I want these on my radar
   months ahead, not the week of.
 
 ## What to push down
 
-- Generic ticketed club nights with no particular hook.
+- Live music generally - it's not really my thing, so gigs, club nights and
+  touring shows should rank low by default.
+- The exception is the handful of festivals that are events in their own
+  right: Outside Lands, Portola, Hardly Strictly, Stern Grove. Those I want
+  to know about.
 - Anything that's mostly a merch pop-up or a brand activation.
 - Long drives to the South Bay on a weeknight.
 

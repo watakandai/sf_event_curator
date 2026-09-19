@@ -20,218 +20,46 @@
   ],
   "events": [
     {
-      "id": "folsom-street-fair",
-      "title": "Folsom Street Fair",
-      "venue": "Folsom Street, SoMa",
-      "city": "San Francisco",
+      "id": "oakland-first-friday",
+      "title": "Oakland First Friday",
+      "venue": "Telegraph Avenue, Uptown",
+      "city": "Oakland",
       "cost": "0",
       "categories": [
-        "Fairs & Festivals",
-        "Outdoors"
+        "Art & Museums",
+        "Block Party",
+        "Community"
       ],
-      "url": "https://www.folsomstreet.org/",
-      "notability": 88,
+      "url": "https://oaklandfirstfridays.org/",
+      "notability": 66,
       "approx": false,
       "rule": {
-        "type": "nth_weekday",
-        "month": 9,
-        "weekday": 6,
-        "n": -1
-      },
-      "description": "Always the last Sunday of September."
-    },
-    {
-      "id": "hardly-strictly-bluegrass",
-      "title": "Hardly Strictly Bluegrass",
-      "venue": "Golden Gate Park",
-      "city": "San Francisco",
-      "cost": "0",
-      "categories": [
-        "Live Music",
-        "Outdoors",
-        "Fairs & Festivals"
-      ],
-      "url": "https://hardlystrictlybluegrass.com/",
-      "notability": 95,
-      "approx": false,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 10,
+        "type": "monthly_nth_weekday",
         "weekday": 4,
-        "n": 1,
-        "span_days": 3
-      },
-      "description": "Free three-day festival, first weekend of October."
-    },
-    {
-      "id": "castro-street-fair",
-      "title": "Castro Street Fair",
-      "venue": "Castro District",
-      "city": "San Francisco",
-      "cost": "0",
-      "categories": [
-        "Fairs & Festivals",
-        "Community"
-      ],
-      "url": "https://www.castrostreetfair.org/",
-      "notability": 72,
-      "approx": false,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 10,
-        "weekday": 6,
         "n": 1
       },
-      "description": "First Sunday of October."
+      "description": "Monthly art walk and street festival along Telegraph."
     },
     {
-      "id": "mill-valley-fall-arts",
-      "title": "Mill Valley Fall Arts Festival",
-      "venue": "Old Mill Park",
-      "city": "Mill Valley",
-      "address": "375 Throckmorton Ave, Mill Valley, CA",
-      "cost": "",
-      "categories": [
-        "Art & Museums",
-        "Fairs & Festivals",
-        "Outdoors"
-      ],
-      "url": "https://mvfaf.org/",
-      "notability": 70,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekend",
-        "month": 9,
-        "n": 3,
-        "span_days": 2
-      },
-      "description": "Juried fine-art festival under the redwoods of Old Mill Park. Traditionally the third weekend of September - confirm before travelling."
-    },
-    {
-      "id": "mill-valley-film-festival",
-      "title": "Mill Valley Film Festival",
-      "venue": "CinemaSF / Sequoia & Lark theatres",
-      "city": "Mill Valley",
-      "cost": "",
-      "categories": [
-        "Art & Museums"
-      ],
-      "url": "https://www.mvff.com/",
-      "notability": 74,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 10,
-        "weekday": 3,
-        "n": 1
-      },
-      "description": "Eleven-day festival, opens the first Thursday of October (approx)."
-    },
-    {
-      "id": "sausalito-art-festival",
-      "title": "Sausalito Art Festival",
-      "venue": "Marinship Park",
-      "city": "Sausalito",
-      "cost": "",
-      "categories": [
-        "Art & Museums",
-        "Fairs & Festivals"
-      ],
-      "url": "https://www.sausalitoartfestival.org/",
-      "notability": 68,
-      "approx": false,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 9,
-        "weekday": 5,
-        "n": 1,
-        "span_days": 3
-      },
-      "description": "Labor Day weekend, Saturday through Monday."
-    },
-    {
-      "id": "dipsea-race",
-      "title": "Dipsea Race",
-      "venue": "Mill Valley to Stinson Beach",
-      "city": "Mill Valley",
-      "cost": "",
-      "categories": [
-        "Sports",
-        "Outdoors"
-      ],
-      "url": "https://www.dipsea.org/",
-      "notability": 55,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 6,
-        "weekday": 6,
-        "n": 2
-      },
-      "description": "Oldest trail race in America, 7.4 miles over Mount Tamalpais. Second Sunday of June (approx)."
-    },
-    {
-      "id": "bay-to-breakers",
-      "title": "Bay to Breakers",
-      "venue": "Embarcadero to Ocean Beach",
+      "id": "sf-sketchfest",
+      "title": "SF Sketchfest",
+      "venue": "Various venues",
       "city": "San Francisco",
       "cost": "",
-      "categories": [
-        "Sports",
-        "Community"
-      ],
-      "url": "https://www.baytobreakers.com/",
-      "notability": 90,
-      "approx": false,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 5,
-        "weekday": 6,
-        "n": 3
-      },
-      "description": "Always the third Sunday of May."
-    },
-    {
-      "id": "sf-pride",
-      "title": "SF Pride Parade & Celebration",
-      "venue": "Market Street / Civic Center",
-      "city": "San Francisco",
-      "cost": "0",
       "categories": [
         "Community",
-        "Fairs & Festivals",
-        "Live Music"
+        "Art & Museums"
       ],
-      "url": "https://sfpride.org/",
-      "notability": 99,
-      "approx": false,
+      "url": "https://sfsketchfest.com/",
+      "notability": 64,
+      "approx": true,
       "rule": {
-        "type": "last_full_weekend",
-        "month": 6,
-        "span_days": 2
+        "type": "nth_weekday",
+        "month": 1,
+        "weekday": 3,
+        "n": 3
       },
-      "description": "Always the last full weekend of June."
-    },
-    {
-      "id": "carnaval-sf",
-      "title": "Carnaval San Francisco",
-      "venue": "Mission District",
-      "city": "San Francisco",
-      "cost": "0",
-      "categories": [
-        "Fairs & Festivals",
-        "Live Music",
-        "Community"
-      ],
-      "url": "https://carnavalsanfrancisco.org/",
-      "notability": 80,
-      "approx": false,
-      "rule": {
-        "type": "last_full_weekend",
-        "month": 5,
-        "span_days": 2
-      },
-      "description": "Memorial Day weekend in the Mission."
+      "description": "Three weeks of comedy across the city (approx)."
     },
     {
       "id": "chinese-new-year-parade",
@@ -253,6 +81,46 @@
         "n": 3
       },
       "description": "Largest Lunar New Year parade outside Asia. Falls about two weeks after the new moon, so the date moves with the lunar calendar - confirm each year."
+    },
+    {
+      "id": "noise-pop",
+      "title": "Noise Pop Festival",
+      "venue": "Various venues",
+      "city": "San Francisco",
+      "cost": "",
+      "categories": [
+        "Live Music"
+      ],
+      "url": "https://noisepop.com/",
+      "notability": 60,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 2,
+        "weekday": 1,
+        "n": 4
+      },
+      "description": "Independent music festival across small SF venues (approx)."
+    },
+    {
+      "id": "sf-beer-week",
+      "title": "SF Beer Week",
+      "venue": "Citywide breweries",
+      "city": "San Francisco",
+      "cost": "",
+      "categories": [
+        "Eating & Drinking"
+      ],
+      "url": "https://sfbeerweek.org/",
+      "notability": 56,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 2,
+        "weekday": 4,
+        "n": 1
+      },
+      "description": "Nine days, opens with a gala (approx)."
     },
     {
       "id": "st-patricks-parade",
@@ -297,6 +165,26 @@
       "description": "Runs over two weekends in April (approx)."
     },
     {
+      "id": "giants-opening-day",
+      "title": "SF Giants Home Opener",
+      "venue": "Oracle Park",
+      "city": "San Francisco",
+      "cost": "",
+      "categories": [
+        "Sports"
+      ],
+      "url": "https://www.mlb.com/giants",
+      "notability": 80,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 4,
+        "weekday": 4,
+        "n": 1
+      },
+      "description": "Exact date set by the MLB schedule release (approx)."
+    },
+    {
       "id": "sf-intl-film-festival",
       "title": "San Francisco International Film Festival",
       "venue": "Various theatres",
@@ -315,6 +203,131 @@
         "n": 3
       },
       "description": "Longest-running film festival in the Americas (approx timing)."
+    },
+    {
+      "id": "bay-area-book-festival",
+      "title": "Bay Area Book Festival",
+      "venue": "Downtown Berkeley",
+      "city": "Berkeley",
+      "cost": "0",
+      "categories": [
+        "Art & Museums",
+        "Community"
+      ],
+      "url": "https://www.baybookfest.org/",
+      "notability": 54,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 5,
+        "n": 1,
+        "span_days": 2
+      },
+      "description": "(approx)"
+    },
+    {
+      "id": "bay-to-breakers",
+      "title": "Bay to Breakers",
+      "venue": "Embarcadero to Ocean Beach",
+      "city": "San Francisco",
+      "cost": "",
+      "categories": [
+        "Sports",
+        "Community"
+      ],
+      "url": "https://www.baytobreakers.com/",
+      "notability": 90,
+      "approx": false,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 5,
+        "weekday": 6,
+        "n": 3
+      },
+      "description": "Always the third Sunday of May."
+    },
+    {
+      "id": "carnaval-sf",
+      "title": "Carnaval San Francisco",
+      "venue": "Mission District",
+      "city": "San Francisco",
+      "cost": "0",
+      "categories": [
+        "Fairs & Festivals",
+        "Live Music",
+        "Community"
+      ],
+      "url": "https://carnavalsanfrancisco.org/",
+      "notability": 80,
+      "approx": false,
+      "rule": {
+        "type": "last_full_weekend",
+        "month": 5,
+        "span_days": 2
+      },
+      "description": "Memorial Day weekend in the Mission."
+    },
+    {
+      "id": "stanford-powwow",
+      "title": "Stanford Powwow",
+      "venue": "Stanford University",
+      "city": "Stanford",
+      "cost": "0",
+      "categories": [
+        "Community",
+        "Fairs & Festivals"
+      ],
+      "url": "https://powwow.stanford.edu/",
+      "notability": 56,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 5,
+        "n": 2,
+        "span_days": 3
+      },
+      "description": "Mother's Day weekend; one of the largest student-run powwows in the country (approx)."
+    },
+    {
+      "id": "alameda-county-fair",
+      "title": "Alameda County Fair",
+      "venue": "Alameda County Fairgrounds",
+      "city": "Pleasanton",
+      "cost": "",
+      "categories": [
+        "Fairs & Festivals"
+      ],
+      "url": "https://alamedacountyfair.com/",
+      "notability": 54,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 6,
+        "weekday": 4,
+        "n": 3
+      },
+      "description": "Opening day of a multi-week county fair (approx)."
+    },
+    {
+      "id": "dipsea-race",
+      "title": "Dipsea Race",
+      "venue": "Mill Valley to Stinson Beach",
+      "city": "Mill Valley",
+      "cost": "",
+      "categories": [
+        "Sports",
+        "Outdoors"
+      ],
+      "url": "https://www.dipsea.org/",
+      "notability": 55,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 6,
+        "weekday": 6,
+        "n": 2
+      },
+      "description": "Oldest trail race in America, 7.4 miles over Mount Tamalpais. Second Sunday of June (approx)."
     },
     {
       "id": "juneteenth-sf",
@@ -358,6 +371,27 @@
       "description": "Oldest urban street fair in the country (approx timing)."
     },
     {
+      "id": "sf-pride",
+      "title": "SF Pride Parade & Celebration",
+      "venue": "Market Street / Civic Center",
+      "city": "San Francisco",
+      "cost": "0",
+      "categories": [
+        "Community",
+        "Fairs & Festivals",
+        "Live Music"
+      ],
+      "url": "https://sfpride.org/",
+      "notability": 99,
+      "approx": false,
+      "rule": {
+        "type": "last_full_weekend",
+        "month": 6,
+        "span_days": 2
+      },
+      "description": "Always the last full weekend of June."
+    },
+    {
       "id": "stern-grove-opening",
       "title": "Stern Grove Festival opening concert",
       "venue": "Sigmund Stern Grove",
@@ -379,24 +413,25 @@
       "description": "Free Sunday concerts run from June through August; this is the season opener (approx)."
     },
     {
-      "id": "fourth-of-july-fireworks",
-      "title": "Fourth of July Waterfront Fireworks",
-      "venue": "Fisherman's Wharf / Aquatic Park",
-      "city": "San Francisco",
+      "id": "berkeley-kite-festival",
+      "title": "Berkeley Kite Festival",
+      "venue": "Cesar Chavez Park",
+      "city": "Berkeley",
       "cost": "0",
       "categories": [
-        "Community",
-        "Outdoors"
+        "Outdoors",
+        "Community"
       ],
-      "url": "",
-      "notability": 78,
-      "approx": false,
+      "url": "https://highlinekites.com/",
+      "notability": 52,
+      "approx": true,
       "rule": {
-        "type": "fixed",
+        "type": "nth_weekend",
         "month": 7,
-        "day": 4
+        "n": 4,
+        "span_days": 2
       },
-      "description": "Frequently fogged in. Locals watch from higher ground."
+      "description": "Reliable wind on the Berkeley waterfront (approx)."
     },
     {
       "id": "fillmore-jazz-festival",
@@ -420,6 +455,26 @@
       "description": "Largest free jazz festival on the West Coast (approx timing)."
     },
     {
+      "id": "fourth-of-july-fireworks",
+      "title": "Fourth of July Waterfront Fireworks",
+      "venue": "Fisherman's Wharf / Aquatic Park",
+      "city": "San Francisco",
+      "cost": "0",
+      "categories": [
+        "Community",
+        "Outdoors"
+      ],
+      "url": "",
+      "notability": 78,
+      "approx": false,
+      "rule": {
+        "type": "fixed",
+        "month": 7,
+        "day": 4
+      },
+      "description": "Frequently fogged in. Locals watch from higher ground."
+    },
+    {
       "id": "sf-marathon",
       "title": "San Francisco Marathon",
       "venue": "Embarcadero start/finish",
@@ -438,6 +493,27 @@
         "n": 4
       },
       "description": "Crosses the Golden Gate Bridge (approx timing)."
+    },
+    {
+      "id": "nihonmachi-street-fair",
+      "title": "Nihonmachi Street Fair",
+      "venue": "Japantown",
+      "city": "San Francisco",
+      "cost": "0",
+      "categories": [
+        "Fairs & Festivals",
+        "Community"
+      ],
+      "url": "https://nihonmachistreetfair.org/",
+      "notability": 55,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 8,
+        "n": 1,
+        "span_days": 2
+      },
+      "description": ""
     },
     {
       "id": "outside-lands",
@@ -462,25 +538,46 @@
       "description": "The city's largest music festival, typically the first or second weekend of August. Tickets sell out months ahead."
     },
     {
-      "id": "nihonmachi-street-fair",
-      "title": "Nihonmachi Street Fair",
-      "venue": "Japantown",
-      "city": "San Francisco",
-      "cost": "0",
+      "id": "san-jose-jazz-summer-fest",
+      "title": "San Jose Jazz Summer Fest",
+      "venue": "Plaza de Cesar Chavez",
+      "city": "San Jose",
+      "cost": "",
       "categories": [
-        "Fairs & Festivals",
-        "Community"
+        "Live Music",
+        "Fairs & Festivals"
       ],
-      "url": "https://nihonmachistreetfair.org/",
-      "notability": 55,
+      "url": "https://sanjosejazz.org/",
+      "notability": 60,
       "approx": true,
       "rule": {
-        "type": "nth_weekend",
+        "type": "nth_weekday",
         "month": 8,
-        "n": 1,
-        "span_days": 2
+        "weekday": 4,
+        "n": 2,
+        "span_days": 3
       },
-      "description": ""
+      "description": "(approx)"
+    },
+    {
+      "id": "49ers-home-opener",
+      "title": "49ers Home Opener",
+      "venue": "Levi's Stadium",
+      "city": "Santa Clara",
+      "cost": "",
+      "categories": [
+        "Sports"
+      ],
+      "url": "https://www.49ers.com/",
+      "notability": 82,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 9,
+        "weekday": 6,
+        "n": 2
+      },
+      "description": "Exact date set by the NFL schedule release (approx)."
     },
     {
       "id": "autumn-moon-festival",
@@ -504,6 +601,50 @@
       "description": "Mid-Autumn Festival; date follows the lunar calendar (approx)."
     },
     {
+      "id": "folsom-street-fair",
+      "title": "Folsom Street Fair",
+      "venue": "Folsom Street, SoMa",
+      "city": "San Francisco",
+      "cost": "0",
+      "categories": [
+        "Fairs & Festivals",
+        "Outdoors"
+      ],
+      "url": "https://www.folsomstreet.org/",
+      "notability": 88,
+      "approx": false,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 9,
+        "weekday": 6,
+        "n": -1
+      },
+      "description": "Always the last Sunday of September."
+    },
+    {
+      "id": "mill-valley-fall-arts",
+      "title": "Mill Valley Fall Arts Festival",
+      "venue": "Old Mill Park",
+      "city": "Mill Valley",
+      "address": "375 Throckmorton Ave, Mill Valley, CA",
+      "cost": "",
+      "categories": [
+        "Art & Museums",
+        "Fairs & Festivals",
+        "Outdoors"
+      ],
+      "url": "https://mvfaf.org/",
+      "notability": 70,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 9,
+        "n": 3,
+        "span_days": 2
+      },
+      "description": "Juried fine-art festival under the redwoods of Old Mill Park. Traditionally the third weekend of September - confirm before travelling."
+    },
+    {
       "id": "opera-in-the-park",
       "title": "Opera in the Park",
       "venue": "Robin Williams Meadow, Golden Gate Park",
@@ -523,6 +664,91 @@
         "n": 2
       },
       "description": "Free concert opening the SF Opera season (approx)."
+    },
+    {
+      "id": "portola-music-festival",
+      "title": "Portola Music Festival",
+      "venue": "Pier 80",
+      "city": "San Francisco",
+      "cost": "",
+      "categories": [
+        "Live Music",
+        "Fairs & Festivals"
+      ],
+      "url": "https://portolamusicfestival.com/",
+      "notability": 85,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 9,
+        "n": 3,
+        "span_days": 2
+      },
+      "description": "Electronic and dance-leaning two-day festival on the working waterfront at Pier 80. Late September (approx - confirm the year's dates)."
+    },
+    {
+      "id": "sausalito-art-festival",
+      "title": "Sausalito Art Festival",
+      "venue": "Marinship Park",
+      "city": "Sausalito",
+      "cost": "",
+      "categories": [
+        "Art & Museums",
+        "Fairs & Festivals"
+      ],
+      "url": "https://www.sausalitoartfestival.org/",
+      "notability": 68,
+      "approx": false,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 9,
+        "weekday": 5,
+        "n": 1,
+        "span_days": 3
+      },
+      "description": "Labor Day weekend, Saturday through Monday."
+    },
+    {
+      "id": "solano-stroll",
+      "title": "Solano Avenue Stroll",
+      "venue": "Solano Avenue",
+      "city": "Berkeley / Albany",
+      "cost": "0",
+      "categories": [
+        "Fairs & Festivals",
+        "Community"
+      ],
+      "url": "https://solanostroll.org/",
+      "notability": 58,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 9,
+        "weekday": 6,
+        "n": 2
+      },
+      "description": "Mile-long East Bay street fair (approx)."
+    },
+    {
+      "id": "castro-street-fair",
+      "title": "Castro Street Fair",
+      "venue": "Castro District",
+      "city": "San Francisco",
+      "cost": "0",
+      "categories": [
+        "Fairs & Festivals",
+        "Community"
+      ],
+      "url": "https://www.castrostreetfair.org/",
+      "notability": 72,
+      "approx": false,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 10,
+        "weekday": 6,
+        "n": 1
+      },
+      "description": "First Sunday of October."
     },
     {
       "id": "fleet-week-airshow",
@@ -546,6 +772,69 @@
       "description": "Blue Angels over the Bay, usually Columbus Day weekend (approx)."
     },
     {
+      "id": "half-moon-bay-pumpkin",
+      "title": "Half Moon Bay Art & Pumpkin Festival",
+      "venue": "Main Street",
+      "city": "Half Moon Bay",
+      "cost": "0",
+      "categories": [
+        "Fairs & Festivals",
+        "Outdoors"
+      ],
+      "url": "https://pumpkinfest.miramarevents.com/",
+      "notability": 72,
+      "approx": false,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 10,
+        "n": 3,
+        "span_days": 2
+      },
+      "description": "Third weekend of October. Highway 1 traffic is the real event - go early or take the shuttle."
+    },
+    {
+      "id": "halloween-sf",
+      "title": "Halloween",
+      "venue": "Citywide",
+      "city": "San Francisco",
+      "cost": "",
+      "categories": [
+        "Community"
+      ],
+      "url": "",
+      "notability": 70,
+      "approx": false,
+      "rule": {
+        "type": "fixed",
+        "month": 10,
+        "day": 31
+      },
+      "description": "The Castro street party has not been city-sanctioned since 2006; neighbourhood events fill in."
+    },
+    {
+      "id": "hardly-strictly-bluegrass",
+      "title": "Hardly Strictly Bluegrass",
+      "venue": "Golden Gate Park",
+      "city": "San Francisco",
+      "cost": "0",
+      "categories": [
+        "Live Music",
+        "Outdoors",
+        "Fairs & Festivals"
+      ],
+      "url": "https://hardlystrictlybluegrass.com/",
+      "notability": 95,
+      "approx": false,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 10,
+        "weekday": 4,
+        "n": 1,
+        "span_days": 3
+      },
+      "description": "Free three-day festival, first weekend of October."
+    },
+    {
       "id": "litquake",
       "title": "Litquake",
       "venue": "Various venues",
@@ -565,6 +854,26 @@
         "n": 2
       },
       "description": "Citywide literary festival; closes with the Lit Crawl in the Mission (approx)."
+    },
+    {
+      "id": "mill-valley-film-festival",
+      "title": "Mill Valley Film Festival",
+      "venue": "CinemaSF / Sequoia & Lark theatres",
+      "city": "Mill Valley",
+      "cost": "",
+      "categories": [
+        "Art & Museums"
+      ],
+      "url": "https://www.mvff.com/",
+      "notability": 74,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 10,
+        "weekday": 3,
+        "n": 1
+      },
+      "description": "Eleven-day festival, opens the first Thursday of October (approx)."
     },
     {
       "id": "sf-decompression",
@@ -589,44 +898,24 @@
       "description": "Burning Man's post-playa street party, with art cars and mutant vehicles (approx)."
     },
     {
-      "id": "halloween-sf",
-      "title": "Halloween",
-      "venue": "Citywide",
+      "id": "warriors-home-opener",
+      "title": "Warriors Home Opener",
+      "venue": "Chase Center",
       "city": "San Francisco",
       "cost": "",
       "categories": [
-        "Community"
+        "Sports"
       ],
-      "url": "",
-      "notability": 70,
-      "approx": false,
+      "url": "https://www.nba.com/warriors",
+      "notability": 78,
+      "approx": true,
       "rule": {
-        "type": "fixed",
+        "type": "nth_weekday",
         "month": 10,
-        "day": 31
+        "weekday": 2,
+        "n": 3
       },
-      "description": "The Castro street party has not been city-sanctioned since 2006; neighbourhood events fill in."
-    },
-    {
-      "id": "half-moon-bay-pumpkin",
-      "title": "Half Moon Bay Art & Pumpkin Festival",
-      "venue": "Main Street",
-      "city": "Half Moon Bay",
-      "cost": "0",
-      "categories": [
-        "Fairs & Festivals",
-        "Outdoors"
-      ],
-      "url": "https://pumpkinfest.miramarevents.com/",
-      "notability": 72,
-      "approx": false,
-      "rule": {
-        "type": "nth_weekend",
-        "month": 10,
-        "n": 3,
-        "span_days": 2
-      },
-      "description": "Third weekend of October. Highway 1 traffic is the real event - go early or take the shuttle."
+      "description": "Exact date set by the NBA schedule release (approx)."
     },
     {
       "id": "dia-de-los-muertos",
@@ -647,6 +936,26 @@
         "day": 2
       },
       "description": "Procession plus the Festival of Altars in Garfield Park."
+    },
+    {
+      "id": "dickens-fair",
+      "title": "Great Dickens Christmas Fair",
+      "venue": "Cow Palace",
+      "city": "Daly City",
+      "cost": "",
+      "categories": [
+        "Fairs & Festivals"
+      ],
+      "url": "https://dickensfair.com/",
+      "notability": 60,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 11,
+        "n": 3,
+        "span_days": 2
+      },
+      "description": "Opening weekend; then runs weekends through the week before Christmas."
     },
     {
       "id": "union-square-tree-lighting",
@@ -671,24 +980,24 @@
       "description": "The Friday after Thanksgiving."
     },
     {
-      "id": "dickens-fair",
-      "title": "Great Dickens Christmas Fair",
-      "venue": "Cow Palace",
-      "city": "Daly City",
-      "cost": "",
+      "id": "nye-fireworks",
+      "title": "New Year's Eve Fireworks",
+      "venue": "Embarcadero / Ferry Building",
+      "city": "San Francisco",
+      "cost": "0",
       "categories": [
-        "Fairs & Festivals"
+        "Community",
+        "Outdoors"
       ],
-      "url": "https://dickensfair.com/",
-      "notability": 60,
-      "approx": true,
+      "url": "",
+      "notability": 76,
+      "approx": false,
       "rule": {
-        "type": "nth_weekend",
-        "month": 11,
-        "n": 3,
-        "span_days": 2
+        "type": "fixed",
+        "month": 12,
+        "day": 31
       },
-      "description": "Opening weekend; then runs weekends through the week before Christmas."
+      "description": "Midnight over the Bay."
     },
     {
       "id": "sf-ballet-nutcracker",
@@ -710,294 +1019,6 @@
         "n": 2
       },
       "description": "The first Nutcracker ever staged in the US (approx opening)."
-    },
-    {
-      "id": "nye-fireworks",
-      "title": "New Year's Eve Fireworks",
-      "venue": "Embarcadero / Ferry Building",
-      "city": "San Francisco",
-      "cost": "0",
-      "categories": [
-        "Community",
-        "Outdoors"
-      ],
-      "url": "",
-      "notability": 76,
-      "approx": false,
-      "rule": {
-        "type": "fixed",
-        "month": 12,
-        "day": 31
-      },
-      "description": "Midnight over the Bay."
-    },
-    {
-      "id": "sf-sketchfest",
-      "title": "SF Sketchfest",
-      "venue": "Various venues",
-      "city": "San Francisco",
-      "cost": "",
-      "categories": [
-        "Community",
-        "Art & Museums"
-      ],
-      "url": "https://sfsketchfest.com/",
-      "notability": 64,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 1,
-        "weekday": 3,
-        "n": 3
-      },
-      "description": "Three weeks of comedy across the city (approx)."
-    },
-    {
-      "id": "sf-beer-week",
-      "title": "SF Beer Week",
-      "venue": "Citywide breweries",
-      "city": "San Francisco",
-      "cost": "",
-      "categories": [
-        "Eating & Drinking"
-      ],
-      "url": "https://sfbeerweek.org/",
-      "notability": 56,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 2,
-        "weekday": 4,
-        "n": 1
-      },
-      "description": "Nine days, opens with a gala (approx)."
-    },
-    {
-      "id": "noise-pop",
-      "title": "Noise Pop Festival",
-      "venue": "Various venues",
-      "city": "San Francisco",
-      "cost": "",
-      "categories": [
-        "Live Music"
-      ],
-      "url": "https://noisepop.com/",
-      "notability": 60,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 2,
-        "weekday": 1,
-        "n": 4
-      },
-      "description": "Independent music festival across small SF venues (approx)."
-    },
-    {
-      "id": "giants-opening-day",
-      "title": "SF Giants Home Opener",
-      "venue": "Oracle Park",
-      "city": "San Francisco",
-      "cost": "",
-      "categories": [
-        "Sports"
-      ],
-      "url": "https://www.mlb.com/giants",
-      "notability": 80,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 4,
-        "weekday": 4,
-        "n": 1
-      },
-      "description": "Exact date set by the MLB schedule release (approx)."
-    },
-    {
-      "id": "warriors-home-opener",
-      "title": "Warriors Home Opener",
-      "venue": "Chase Center",
-      "city": "San Francisco",
-      "cost": "",
-      "categories": [
-        "Sports"
-      ],
-      "url": "https://www.nba.com/warriors",
-      "notability": 78,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 10,
-        "weekday": 2,
-        "n": 3
-      },
-      "description": "Exact date set by the NBA schedule release (approx)."
-    },
-    {
-      "id": "49ers-home-opener",
-      "title": "49ers Home Opener",
-      "venue": "Levi's Stadium",
-      "city": "Santa Clara",
-      "cost": "",
-      "categories": [
-        "Sports"
-      ],
-      "url": "https://www.49ers.com/",
-      "notability": 82,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 9,
-        "weekday": 6,
-        "n": 2
-      },
-      "description": "Exact date set by the NFL schedule release (approx)."
-    },
-    {
-      "id": "oakland-first-friday",
-      "title": "Oakland First Friday",
-      "venue": "Telegraph Avenue, Uptown",
-      "city": "Oakland",
-      "cost": "0",
-      "categories": [
-        "Art & Museums",
-        "Block Party",
-        "Community"
-      ],
-      "url": "https://oaklandfirstfridays.org/",
-      "notability": 66,
-      "approx": false,
-      "rule": {
-        "type": "monthly_nth_weekday",
-        "weekday": 4,
-        "n": 1
-      },
-      "description": "Monthly art walk and street festival along Telegraph."
-    },
-    {
-      "id": "solano-stroll",
-      "title": "Solano Avenue Stroll",
-      "venue": "Solano Avenue",
-      "city": "Berkeley / Albany",
-      "cost": "0",
-      "categories": [
-        "Fairs & Festivals",
-        "Community"
-      ],
-      "url": "https://solanostroll.org/",
-      "notability": 58,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 9,
-        "weekday": 6,
-        "n": 2
-      },
-      "description": "Mile-long East Bay street fair (approx)."
-    },
-    {
-      "id": "berkeley-kite-festival",
-      "title": "Berkeley Kite Festival",
-      "venue": "Cesar Chavez Park",
-      "city": "Berkeley",
-      "cost": "0",
-      "categories": [
-        "Outdoors",
-        "Community"
-      ],
-      "url": "https://highlinekites.com/",
-      "notability": 52,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekend",
-        "month": 7,
-        "n": 4,
-        "span_days": 2
-      },
-      "description": "Reliable wind on the Berkeley waterfront (approx)."
-    },
-    {
-      "id": "alameda-county-fair",
-      "title": "Alameda County Fair",
-      "venue": "Alameda County Fairgrounds",
-      "city": "Pleasanton",
-      "cost": "",
-      "categories": [
-        "Fairs & Festivals"
-      ],
-      "url": "https://alamedacountyfair.com/",
-      "notability": 54,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 6,
-        "weekday": 4,
-        "n": 3
-      },
-      "description": "Opening day of a multi-week county fair (approx)."
-    },
-    {
-      "id": "san-jose-jazz-summer-fest",
-      "title": "San Jose Jazz Summer Fest",
-      "venue": "Plaza de Cesar Chavez",
-      "city": "San Jose",
-      "cost": "",
-      "categories": [
-        "Live Music",
-        "Fairs & Festivals"
-      ],
-      "url": "https://sanjosejazz.org/",
-      "notability": 60,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekday",
-        "month": 8,
-        "weekday": 4,
-        "n": 2,
-        "span_days": 3
-      },
-      "description": "(approx)"
-    },
-    {
-      "id": "bay-area-book-festival",
-      "title": "Bay Area Book Festival",
-      "venue": "Downtown Berkeley",
-      "city": "Berkeley",
-      "cost": "0",
-      "categories": [
-        "Art & Museums",
-        "Community"
-      ],
-      "url": "https://www.baybookfest.org/",
-      "notability": 54,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekend",
-        "month": 5,
-        "n": 1,
-        "span_days": 2
-      },
-      "description": "(approx)"
-    },
-    {
-      "id": "stanford-powwow",
-      "title": "Stanford Powwow",
-      "venue": "Stanford University",
-      "city": "Stanford",
-      "cost": "0",
-      "categories": [
-        "Community",
-        "Fairs & Festivals"
-      ],
-      "url": "https://powwow.stanford.edu/",
-      "notability": 56,
-      "approx": true,
-      "rule": {
-        "type": "nth_weekend",
-        "month": 5,
-        "n": 2,
-        "span_days": 3
-      },
-      "description": "Mother's Day weekend; one of the largest student-run powwows in the country (approx)."
     }
   ]
 }
