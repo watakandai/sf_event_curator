@@ -262,9 +262,13 @@ gh workflow run "Weekly event fetch" -f limit=0
 
 Add `-f rescore_all=true` to re-score events that already have an LLM score.
 Gemini's free tier (a key from a project with billing off) is enough for
-this: when a request is refused for going over the per-minute limit, the
-ranker waits and retries, and if it's still refused after about two minutes
-it treats that as the daily quota and leaves the rest for the next run.
+this, but it caps *requests* per day (20 at the time of writing), not events.
+So CI sends 50 events per request (`RANKER_BATCH_SIZE`) and leaves 15 seconds
+between requests (`RANKER_MIN_INTERVAL`) to stay under the per-minute limit.
+If a per-minute limit is hit anyway, the ranker waits and retries; once the
+daily quota is used up it stops and leaves the rest for the next run. Runs
+are queued, never overlapped, so two runs can't split one quota or lose each
+other's scores.
 
 The workflow **caches the SQLite database between runs** — that's what makes
 LLM ranking affordable, since only unseen events are scored. Losing the cache

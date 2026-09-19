@@ -243,10 +243,19 @@ class ProviderError(ValueError):
     it: one bad batch is reported and skipped, not fatal.
     """
 
-    def __init__(self, message: str, status: int | None = None, retry_after: float | None = None):
+    def __init__(
+        self,
+        message: str,
+        status: int | None = None,
+        retry_after: float | None = None,
+        daily: bool = False,
+    ):
         super().__init__(message)
         self.status = status
         self.retry_after = retry_after
+        # A per-day quota won't clear by waiting a minute, so retrying it only
+        # burns more of tomorrow's allowance.
+        self.daily = daily
 
 
 def _redact(text: str) -> str:
@@ -273,10 +282,16 @@ def _post_json(url: str, headers: dict, payload: dict, timeout: int) -> dict:
         except Exception:  # pragma: no cover - body already consumed
             body = ""
         detail = _redact(body)[:400] or exc.reason
+        # Gemini's 429 names the exhausted quota near the end of a long body,
+        # past where the detail is cut - pull it out so the log says which.
+        quota = re.search(r'"quotaId"\s*:\s*"([^"]+)"', body)
+        if quota:
+            detail = f"quota {quota.group(1)} exhausted"
         raise ProviderError(
             f"HTTP {exc.code}: {detail}",
             status=exc.code,
             retry_after=_retry_after(exc.headers, body),
+            daily=bool(quota) and "PerDay" in quota.group(1),
         ) from None
 
 
@@ -376,7 +391,7 @@ def _call_with_retry(call, prompt, model, key, timeout, sleep):
         try:
             return call(prompt, model, key, timeout)
         except ProviderError as exc:
-            if exc.status not in (429, 503) or wait is None:
+            if exc.status not in (429, 503) or exc.daily or wait is None:
                 raise
             sleep(min(exc.retry_after or wait, 120))
 
@@ -389,15 +404,19 @@ def llm_scores(
     model: str | None = None,
     batch_size: int = 20,
     timeout: int = 90,
+    min_interval: float = 0,
     on_progress=None,
     sleep=time.sleep,
+    clock=time.monotonic,
 ) -> dict[int, tuple[float, str]]:
     """Score rows against the profile. Returns {event id: (score, reason)}.
 
     Batches are independent: one failing batch is reported and skipped rather
     than losing the whole run, so a rate limit halfway through still leaves
     you with the batches that succeeded. A 429 is waited out and retried
-    first, since the free tiers limit requests per minute.
+    first, since the free tiers limit requests per minute. min_interval
+    spaces batches at least that many seconds apart, so a run stays under a
+    per-minute limit instead of hitting it and waiting.
     """
     if provider not in PROVIDERS:
         raise ValueError(f"unknown provider {provider!r}; expected one of {sorted(PROVIDERS)}")
@@ -409,6 +428,7 @@ def llm_scores(
 
     out: dict[int, tuple[float, str]] = {}
     rate_limited = False
+    last_call = None
     for start in range(0, len(rows), batch_size):
         batch = rows[start:start + batch_size]
         if rate_limited:
@@ -422,6 +442,11 @@ def llm_scores(
             profile=profile,
             events="\n".join(_event_line(i, r) for i, r in enumerate(batch, 1)),
         )
+        if min_interval and last_call is not None:
+            wait = min_interval - (clock() - last_call)
+            if wait > 0:
+                sleep(wait)
+        last_call = clock()
         try:
             reply = _call_with_retry(call, prompt, model, key, timeout, sleep)
             scored = parse_scores(reply, len(batch))

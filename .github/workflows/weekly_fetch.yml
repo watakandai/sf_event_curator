@@ -43,6 +43,13 @@ on:
 permissions:
   contents: write
 
+# One run at a time. Two overlapping runs share one API quota, and the second
+# to finish can't push its export (the first moved main) - so it fails before
+# saving its database cache, and every score it paid for is lost. Queue instead.
+concurrency:
+  group: weekly-fetch
+  cancel-in-progress: false
+
 jobs:
   fetch-and-export:
     runs-on: ubuntu-latest
@@ -112,8 +119,13 @@ jobs:
           # A manual run's `limit` input wins over the variable, so a one-off
           # "score everything" run doesn't mean editing repo settings.
           LIMIT: ${{ inputs.limit != '' && inputs.limit || vars.RANKER_LIMIT }}
+          # Gemini's free tier counts requests, not events, against a small
+          # daily quota - so send many events per request, and space requests
+          # out to stay under the per-minute limit rather than bump into it.
+          BATCH_SIZE: ${{ vars.RANKER_BATCH_SIZE || 50 }}
+          MIN_INTERVAL: ${{ vars.RANKER_MIN_INTERVAL || 15 }}
         run: |
-          args=(--provider "$PROVIDER")
+          args=(--provider "$PROVIDER" --batch-size "$BATCH_SIZE" --min-interval "$MIN_INTERVAL")
           [ "$RESCORE_ALL" = true ] && args+=(--rescore-all)
           if [ -n "$LIMIT" ]; then
             case "$LIMIT" in

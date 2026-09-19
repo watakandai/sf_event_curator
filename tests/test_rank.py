@@ -401,3 +401,53 @@ def test_other_errors_are_not_retried(monkeypatch):
     rank.llm_scores([{"id": 1, "title": "A"}], "profile", provider="stub",
                     sleep=lambda s: pytest.fail("should not wait"))
     assert calls["n"] == 1
+
+
+def test_a_daily_quota_is_named_and_not_retried(monkeypatch):
+    """Retrying a per-day quota only spends more of tomorrow's allowance."""
+    import urllib.error
+
+    body = (b'{"error":{"code":429,"message":"' + b"x" * 500 + b'","details":[{"violations":'
+            b'[{"quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]},'
+            b'{"retryDelay":"30s"}]}}')
+    calls = {"n": 0}
+
+    def boom(req, timeout=None):
+        calls["n"] += 1
+        raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(rank.urllib.request, "urlopen", boom)
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    notes: list[str] = []
+    rows = [{"id": i, "title": str(i)} for i in range(3)]
+
+    out = rank.llm_scores(rows, "profile", provider="gemini", batch_size=1,
+                          sleep=lambda s: None,
+                          on_progress=lambda o, s, note: notes.append(note))
+
+    assert out == {}
+    assert calls["n"] == 1
+    assert "GenerateRequestsPerDayPerProjectPerModel-FreeTier" in notes[0]
+    assert notes[1:] == ["skipped (rate limited)"] * 2
+
+
+def test_min_interval_spaces_out_requests(monkeypatch):
+    now = {"t": 0.0}
+    sent: list[float] = []
+
+    def reply(prompt, model, key, timeout):
+        sent.append(now["t"])
+        now["t"] += 4  # each request takes 4s
+        return json.dumps([{"i": 1, "score": 50, "reason": "ok"}])
+
+    def sleep(s):
+        now["t"] += s
+
+    _stub(monkeypatch, reply)
+    rows = [{"id": i, "title": str(i)} for i in range(3)]
+
+    out = rank.llm_scores(rows, "profile", provider="stub", batch_size=1,
+                          min_interval=15, sleep=sleep, clock=lambda: now["t"])
+
+    assert len(out) == 3
+    assert sent == [0, 15, 30]

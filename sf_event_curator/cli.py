@@ -78,7 +78,14 @@ def main() -> None:
         "--limit", type=int, default=0,
         help="cap how many events get sent to the LLM this run (0 = all unscored)",
     )
-    rank_parser.add_argument("--batch-size", type=int, default=20)
+    rank_parser.add_argument(
+        "--batch-size", type=int, default=50,
+        help="events per LLM request; bigger means fewer requests against a daily quota",
+    )
+    rank_parser.add_argument(
+        "--min-interval", type=float, default=0,
+        help="seconds to leave between LLM requests, to stay under a per-minute limit",
+    )
     rank_parser.add_argument(
         "--rescore-all", action="store_true",
         help="re-send events already scored against the current profile",
@@ -231,7 +238,8 @@ def _cmd_rank(args) -> None:
         llm = ranking.llm_scores(
             todo, profile,
             provider=args.provider, model=model,
-            batch_size=args.batch_size, on_progress=progress,
+            batch_size=args.batch_size, min_interval=args.min_interval,
+            on_progress=progress,
         )
     except (RuntimeError, ValueError) as exc:
         print(f"llm: SKIPPED ({exc})", file=sys.stderr)
