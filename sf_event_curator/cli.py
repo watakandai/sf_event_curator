@@ -5,9 +5,12 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from . import geocode as geocoding
 from . import rank as ranking
 from .db import (
     init_db, upsert_events, query_events, row_to_dict, set_scores, unscored_events,
+    get_geocache, geocache_misses, put_geocache, set_coordinates,
+    clear_coordinates,
 )
 from .fetchers.annual import AnnualEventsFetcher
 from .fetchers.dothebay import DoTheBayFetcher
@@ -80,6 +83,18 @@ def main() -> None:
         help="re-send events already scored against the current profile",
     )
 
+    geo_parser = sub.add_parser(
+        "geocode", help="resolve venue text to coordinates for the map view"
+    )
+    geo_parser.add_argument(
+        "--limit", type=int, default=0,
+        help="max geocoder requests this run (0 = no cap); cached places are free",
+    )
+    geo_parser.add_argument(
+        "--delay", type=float, default=1.0,
+        help="seconds between requests - Nominatim asks for at least 1",
+    )
+
     args = parser.parse_args()
 
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
@@ -93,6 +108,8 @@ def main() -> None:
         _cmd_export(args)
     elif args.cmd == "rank":
         _cmd_rank(args)
+    elif args.cmd == "geocode":
+        _cmd_geocode(args)
 
 
 def _cmd_fetch(args) -> None:
@@ -130,8 +147,8 @@ def _cmd_list(args) -> None:
 # fetched on every page load.
 EXPORT_FIELDS = (
     "id", "source", "title", "start_ts", "end_ts", "venue", "address",
-    "cost", "is_free", "categories", "url", "description",
-    "score", "score_reason", "scored_by", "date_approx",
+    "cost", "is_free", "categories", "url", "description", "images",
+    "lat", "lon", "score", "score_reason", "scored_by", "date_approx",
 )
 DESCRIPTION_LIMIT = 280
 
@@ -220,6 +237,74 @@ def _cmd_rank(args) -> None:
     if llm:
         set_scores(args.db, llm, scored_by=f"{args.provider}:{model}", profile_hash=phash)
     print(f"llm: scored {len(llm)}/{len(todo)} events for profile {phash}")
+
+
+def _cmd_geocode(args) -> None:
+    rows = [row_to_dict(r) for r in query_events(args.db)]
+    if not rows:
+        print("no events to geocode - run `fetch` first")
+        return
+
+    # One cache entry per place, shared by every event at that place.
+    place_of: dict[int, str] = {}
+    for r in rows:
+        key = geocoding.place_key(r["venue"], r["address"])
+        if key:
+            place_of[r["id"]] = key
+
+    known = get_geocache(args.db)
+    # Entries cached before the region check existed can be outside Northern
+    # California; drop them so they get re-queried and then recorded as
+    # unresolved rather than leaving a wrong pin on the map forever.
+    bad = {k for k, (lat, lon) in known.items() if not geocoding.in_region(lat, lon)}
+    for key in bad:
+        del known[key]
+    if bad:
+        print(f"geocode: dropping {len(bad)} cached place(s) outside the region")
+    misses = geocache_misses(args.db)
+    wanted = list(dict.fromkeys(place_of.values()))
+    todo = [p for p in wanted if p not in known and p not in misses]
+    print(
+        f"geocode: {len(wanted)} distinct places across {len(place_of)} events; "
+        f"{len(known)} cached, {len(misses)} known-bad, {len(todo)} to look up"
+    )
+
+    def report(place, coords, note):
+        mark = "ok " if coords else "-- "
+        print(f"  {mark}{place[:48]:48} {note[:60]}")
+
+    resolved, failed = geocoding.geocode_places(
+        todo, known=known, skip=misses, limit=args.limit,
+        delay=args.delay, on_result=report,
+    )
+    for place, (lat, lon) in resolved.items():
+        put_geocache(args.db, place, lat, lon)
+    for place in failed:
+        put_geocache(args.db, place, None, None)
+
+    # Copy coordinates onto every event at a known place, including events
+    # that were already resolved on an earlier run.
+    known.update(resolved)
+    coords = {
+        event_id: known[place]
+        for event_id, place in place_of.items()
+        if place in known
+    }
+    set_coordinates(args.db, coords)
+
+    # Anything still carrying coordinates whose place didn't resolve this run
+    # is stale - most likely stored before the region check rejected it.
+    stale = [
+        r["id"] for r in rows
+        if r["lat"] is not None and r["id"] not in coords
+    ]
+    cleared = clear_coordinates(args.db, stale)
+    if cleared:
+        print(f"geocode: cleared {cleared} stale coordinate(s)")
+    print(
+        f"geocode: resolved {len(resolved)} new, {len(failed)} unresolved; "
+        f"{len(coords)}/{len(rows)} events now have coordinates"
+    )
 
 
 if __name__ == "__main__":

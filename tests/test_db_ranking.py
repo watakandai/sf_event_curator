@@ -162,3 +162,116 @@ def test_editing_the_profile_marks_everything_for_rescoring(tmp_path):
 
 def test_schema_declares_a_score_index():
     assert "idx_events_score" in SCHEMA
+
+
+def test_images_round_trip_as_a_list(tmp_path):
+    db = tmp_path / "e.db"
+    init_db(db)
+    urls = ["https://img/one.jpg", "https://img/two.jpg"]
+    upsert_events(db, [make_event("a", images=urls)])
+    [r] = [row_to_dict(x) for x in query_events(db)]
+    assert r["images"] == urls
+
+
+def test_no_images_becomes_an_empty_list_not_none(tmp_path):
+    """The frontend calls .filter() on this, so None would throw."""
+    db = tmp_path / "e.db"
+    init_db(db)
+    upsert_events(db, [make_event("a")])
+    [r] = [row_to_dict(x) for x in query_events(db)]
+    assert r["images"] == []
+
+
+def test_refetching_does_not_wipe_coordinates(tmp_path):
+    """Geocoding costs rate-limited requests; a refetch must not discard it."""
+    from sf_event_curator.db import set_coordinates
+
+    db = tmp_path / "e.db"
+    init_db(db)
+    upsert_events(db, [make_event("a")])
+    [row] = query_events(db)
+    set_coordinates(db, {row["id"]: (37.77, -122.43)})
+
+    upsert_events(db, [make_event("a", title="Renamed")])
+
+    [r] = [row_to_dict(x) for x in query_events(db)]
+    assert r["title"] == "Renamed"
+    assert (r["lat"], r["lon"]) == (37.77, -122.43)
+
+
+def test_geocache_stores_hits_and_misses_separately(tmp_path):
+    from sf_event_curator.db import get_geocache, geocache_misses, put_geocache
+
+    db = tmp_path / "e.db"
+    init_db(db)
+    put_geocache(db, "The Independent", 37.77, -122.43, "The Independent, SF")
+    put_geocache(db, "TBA", None, None)
+
+    assert get_geocache(db) == {"The Independent": (37.77, -122.43)}
+    assert geocache_misses(db) == {"TBA"}
+
+
+def test_geocache_entries_can_be_corrected(tmp_path):
+    from sf_event_curator.db import get_geocache, geocache_misses, put_geocache
+
+    db = tmp_path / "e.db"
+    init_db(db)
+    put_geocache(db, "Somewhere", None, None)
+    assert geocache_misses(db) == {"Somewhere"}
+    put_geocache(db, "Somewhere", 1.0, 2.0, "found later")
+    assert get_geocache(db) == {"Somewhere": (1.0, 2.0)}
+    assert geocache_misses(db) == set()
+
+
+def test_migration_adds_image_and_coordinate_columns(tmp_path):
+    """The same pre-ranking database must also gain these without data loss."""
+    import sqlite3
+
+    db = tmp_path / "old.db"
+    legacy = """CREATE TABLE events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL, source_id TEXT NOT NULL, title TEXT NOT NULL,
+        start_ts TEXT, end_ts TEXT, venue TEXT, address TEXT, cost TEXT,
+        categories TEXT, url TEXT, description TEXT, fetched_at TEXT NOT NULL,
+        UNIQUE(source, source_id));"""
+    with sqlite3.connect(db) as conn:
+        conn.executescript(legacy)
+        conn.execute(
+            "INSERT INTO events (source, source_id, title, fetched_at) VALUES (?,?,?,?)",
+            ("test", "legacy-1", "Old event", "2026-01-01T00:00:00"),
+        )
+
+    init_db(db)
+
+    [r] = [row_to_dict(x) for x in query_events(db)]
+    assert r["title"] == "Old event"
+    assert r["images"] == [] and r["lat"] is None and r["lon"] is None
+
+
+def test_clear_coordinates_blanks_only_the_named_events(tmp_path):
+    """A coordinate invalidated later must not stay on the row as a wrong pin."""
+    from sf_event_curator.db import clear_coordinates, set_coordinates
+
+    db = tmp_path / "e.db"
+    init_db(db)
+    upsert_events(db, [make_event("keep"), make_event("drop")])
+    ids = {r["source_id"]: r["id"] for r in query_events(db)}
+    set_coordinates(db, {
+        ids["keep"]: (37.77, -122.43),
+        ids["drop"]: (34.05, -118.24),
+    })
+
+    assert clear_coordinates(db, [ids["drop"]]) == 1
+
+    by_id = {r["id"]: row_to_dict(r) for r in query_events(db)}
+    assert by_id[ids["keep"]]["lat"] == 37.77
+    assert by_id[ids["drop"]]["lat"] is None
+    assert by_id[ids["drop"]]["lon"] is None
+
+
+def test_clear_coordinates_with_nothing_to_do_is_a_noop(tmp_path):
+    from sf_event_curator.db import clear_coordinates
+
+    db = tmp_path / "e.db"
+    init_db(db)
+    assert clear_coordinates(db, []) == 0
