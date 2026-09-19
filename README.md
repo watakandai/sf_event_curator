@@ -15,14 +15,16 @@ read-only static export for GitHub Pages.
 - **Ranking**: a free offline heuristic always runs; optionally an LLM scores
   every event against `profile.md` - your background and taste in plain
   English. Pluggable provider: Claude or Gemini
-- **List and calendar views**, sortable by best match or by date, paginated
-  5 per page, with a "Top 5 of the week" section above the list
-- **A persistent map beside the results**, Yelp-style: it follows the current
-  page in list view and the selected day in calendar view, and selection is
-  two-way - click a card to spotlight its pin, click a pin to highlight and
-  scroll to its card
-- **Music hidden by default** (it's about two thirds of the corpus), except
-  for marquee festivals - see Filtering
+- **Calendar home page**: a "Top 5 this month" section (today through the
+  same date next month) above the month grid, and the selected day's events
+  below it, best match first, 5 per page for up to 4 pages
+- **A persistent map beside the results**, Yelp-style: it follows the top
+  picks and the selected day's page, and selection is two-way - click a card
+  to spotlight its pin, click a pin to highlight and scroll to its card
+- **Filter by kind**: toggle chips for Festivals, Arts & Film, Community &
+  Food, Outdoors & Sports, Parks & Rec, Comedy & Shows and Music & Nightlife.
+  Music starts switched off (it's about two thirds of the corpus) - see
+  Filtering
 - **Event artwork, times and mapped locations**: cover images where a source
   publishes them, start/end times, addresses linked to Google Maps, and a
   per-day map view in the calendar (Leaflet + OpenStreetMap)
@@ -87,22 +89,24 @@ quarter of events have artwork. No source currently provides more than one
 image per event, so the carousel controls are present but dormant - see the
 note in Roadmap.
 
-## Filtering music
+## Filtering by kind
 
-19hz is an electronic-music listing end to end, and DoTheBay skews the same
-way, so music is roughly two thirds of everything fetched. The "Hide music"
-toggle is on by default and takes ~1,150 events down to ~375.
+Every source tags events its own way - Funcheap says "Fairs & Festivals",
+DoTheBay "Theater & Performance", 19hz a genre name - so the raw categories
+are too many and too uneven to filter on. The page folds them into a handful
+of kinds (the `KINDS` table in the page's script) and shows them as toggle
+chips, each with a count. An event can belong to several kinds, and it shows
+if any of them is switched on.
+
+Music & Nightlife starts switched off: 19hz is an electronic-music listing end
+to end and DoTheBay skews the same way, so music is roughly two thirds of
+everything fetched. Because kinds overlap, the big festivals need no special
+case - Outside Lands and Portola are also Festivals, Stern Grove and Hardly
+Strictly are also Outdoors, so they stay visible with Music off while a club
+night doesn't. Your chip choices are remembered in the browser.
 
 It's a filter, not a dropped source: music events are still fetched, ranked
-and available with one click, and they still feed the ranker's cross-source
-signal.
-
-Marquee festivals are exempt, because Outside Lands or Portola isn't "a
-music event you'd skip" so much as a thing that happens to the city. The bar
-is `notability >= 70`, a prior only `data/annual_events.json` sets - so the
-guest list is editable as data rather than code. Today that means Outside
-Lands, Hardly Strictly, Portola and Stern Grove get through; a club night or
-a mid-size touring show doesn't.
+and one click away, and they still feed the ranker's cross-source signal.
 
 DoTheBay categories come from each listing card's own
 `ds-event-category-*` class, which is what makes filtering by kind of event

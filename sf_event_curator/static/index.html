@@ -37,7 +37,6 @@
   .field textarea { resize: vertical; min-height: 50px; }
   .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
   .empty { color: var(--muted); font-size: 14px; padding: 2rem 0; text-align: center; }
-  .view-toggle { margin-left: auto; display: flex; gap: 6px; }
   .calendar-nav { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 12px; }
   .calendar-nav h2 { margin: 0; font-size: 16px; min-width: 170px; text-align: center; }
   .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin-bottom: 1.25rem; }
@@ -58,7 +57,6 @@
     /* Too narrow for titles: show just a count per day, tap for the detail. */
     .cal-event-chip, .cal-more { display: none; }
     .cal-count { display: block; font-size: 10px; color: var(--muted); }
-    .view-toggle { margin-left: 0; }
   }
   .badge.score { background: #efe7ff; color: #5b21b6; font-variant-numeric: tabular-nums; }
   .badge.approx { background: #fff4e5; color: #92400e; }
@@ -114,6 +112,13 @@
   .leaflet-marker-icon.marker-selected { filter: hue-rotate(140deg) saturate(1.7) drop-shadow(0 0 3px rgba(192,57,43,.9)); z-index: 10000 !important; }
   .map-hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
   .map-hint.warn { color: var(--accent); }
+  /* --- kind filter chips --- */
+  .kind-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -6px 0 1.25rem; }
+  .kind-chip { border-radius: 999px; padding: 4px 11px; font-size: 12px; color: var(--muted); }
+  .kind-chip[aria-pressed="true"] { background: #fff3f0; border-color: var(--accent); color: var(--accent); }
+  .kind-chip .n { opacity: .7; font-variant-numeric: tabular-nums; margin-left: 3px; }
+  .kind-reset { border: none; background: none; color: var(--muted); font-size: 12px; text-decoration: underline; padding: 4px 6px; }
+  .day-cap { font-size: 12px; color: var(--muted); text-align: center; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -124,19 +129,10 @@
 <main>
   <div class="toolbar">
     <input type="text" id="searchBox" placeholder="Search title or venue..." oninput="resetPaging();render()">
-    <input type="text" id="categoryBox" placeholder="Category contains..." oninput="resetPaging();render()">
     <label><input type="checkbox" id="freeOnly" onchange="resetPaging();render()"> Free only</label>
-    <label><input type="checkbox" id="hideMusic" checked onchange="resetPaging();render()"> Hide music</label>
-    <select id="sortBy" onchange="resetPaging();render()" aria-label="Sort order">
-      <option value="score">Sort: best match</option>
-      <option value="date">Sort: soonest first</option>
-    </select>
-    <div class="view-toggle">
-      <button id="listBtn" class="primary" onclick="switchView('list')">List</button>
-      <button id="calBtn" onclick="switchView('calendar')">Calendar</button>
-    </div>
     <button onclick="loadEvents()">Refresh</button>
   </div>
+  <div class="kind-chips" id="kindChips" role="group" aria-label="Kinds of event"></div>
   <div class="layout">
     <div class="results-col"><div id="results"></div></div>
     <aside class="map-col">
@@ -169,72 +165,125 @@
 
 <script>
 let allEvents = [];
-let viewMode = 'list';
 let calYear, calMonth;   // month the calendar grid is showing
-let selectedDay = null;  // 'YYYY-MM-DD' for the day-detail panel
+let selectedDay = null;  // 'YYYY-MM-DD' for the day list under the grid
+
+// --- kinds: the filter ------------------------------------------------------
+// Each source tags events its own way (Funcheap "Fairs & Festivals", DoTheBay
+// "Theater & Performance", 19hz genre names), so the raw categories are too
+// many and too uneven to filter on directly. They're folded into a handful of
+// kinds here, and an event can belong to several: Outside Lands is Music *and*
+// Festivals, so it stays visible with Music switched off. That replaces the
+// old "hide music, except marquee festivals" special case.
+const KINDS = [
+  { id: 'festivals', label: 'Festivals & Fairs', match: ['fairs & festivals', 'block party', 'oktoberfest', '**annual event**'] },
+  { id: 'arts', label: 'Arts & Film', match: ['art & museums', 'film', 'theater & performance', 'the arts', 'arts family', 'literature', 'lecture education'] },
+  { id: 'community', label: 'Community & Food', match: ['community', 'kids & families', 'political activism', 'lgbtq', 'eating & drinking', 'free food', 'shopping', 'shopping & fashion', 'fun & games', 'experiences'] },
+  { id: 'outdoors', label: 'Outdoors & Sports', match: ['outdoors', 'outdoor recreation', 'sports', 'sports & wellness', 'bike it', 'walks & tours'] },
+  { id: 'parks', label: 'Parks & Rec', match: ['parks & rec'] },
+  { id: 'comedy', label: 'Comedy & Shows', match: ['comedy', 'variety'] },
+  { id: 'music', label: 'Music & Nightlife', match: ['live music', 'music', 'club / dj', 'club/dj', 'dj', 'dj parties'] },
+  { id: 'other', label: 'Other', match: [] },
+];
+// Music is off by default because profile.md pushes it down, and 19hz alone
+// is ~550 club nights that would otherwise bury everything else.
+const DEFAULT_OFF = new Set(['music']);
+const KIND_STORE = 'sfec.kinds.v1';
+let activeKinds = loadActiveKinds();
+
+const kindOfLabel = {};
+for (const k of KINDS) for (const m of k.match) kindOfLabel[m] = k.id;
+
+function eventKinds(e) {
+  if (e._kinds) return e._kinds;
+  const kinds = new Set();
+  if (e.source === '19hz_bayarea') kinds.add('music');
+  for (const c of e.categories || []) {
+    const k = kindOfLabel[String(c).trim().toLowerCase()];
+    if (k) kinds.add(k);
+  }
+  if (!kinds.size) kinds.add('other');
+  e._kinds = kinds;
+  return kinds;
+}
+
+function loadActiveKinds() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(KIND_STORE));
+    if (Array.isArray(saved)) return new Set(saved.filter(id => KINDS.some(k => k.id === id)));
+  } catch (e) { /* private window or blocked storage: fall through */ }
+  return defaultKinds();
+}
+
+function defaultKinds() {
+  return new Set(KINDS.map(k => k.id).filter(id => !DEFAULT_OFF.has(id)));
+}
+
+function saveActiveKinds() {
+  try { localStorage.setItem(KIND_STORE, JSON.stringify([...activeKinds])); } catch (e) { /* not critical */ }
+}
+
+function toggleKind(id) {
+  if (activeKinds.has(id)) activeKinds.delete(id); else activeKinds.add(id);
+  saveActiveKinds();
+  resetPaging();
+  render();
+}
+
+function resetKinds() {
+  activeKinds = defaultKinds();
+  saveActiveKinds();
+  resetPaging();
+  render();
+}
+
+function renderKindChips() {
+  // Counts reflect the search box and Free only, but not the chips themselves,
+  // so a switched-off kind still shows what turning it on would bring back.
+  const base = baseFiltered();
+  const counts = {};
+  for (const e of base) for (const k of eventKinds(e)) counts[k] = (counts[k] || 0) + 1;
+  const isDefault = activeKinds.size === defaultKinds().size
+    && [...defaultKinds()].every(id => activeKinds.has(id));
+  document.getElementById('kindChips').innerHTML = KINDS
+    .filter(k => counts[k.id] || activeKinds.has(k.id))
+    .map(k => `<button class="kind-chip" aria-pressed="${activeKinds.has(k.id)}" onclick="toggleKind('${k.id}')">`
+      + `${escapeHtml(k.label)}<span class="n">${counts[k.id] || 0}</span></button>`)
+    .join('')
+    + (isDefault ? '' : '<button class="kind-reset" onclick="resetKinds()">Reset</button>');
+}
 
 async function loadEvents() {
   const res = await fetch('/api/events');
   allEvents = await res.json();
-  initCalendarPosition();
-  render();
+  // First load opens on today; a reload after an edit stays where you were.
+  if (calYear == null) goToday(); else render();
 }
 
-// Music is the single biggest slice of the corpus - 19hz is an electronic
-// music listing end to end - so this is a filter rather than a dropped
-// source: the events stay fetched and ranked, they're just hidden by
-// default. Genre tags aren't enumerated here because the 19hz source check
-// already covers all 190 of them.
-const MUSIC_LABELS = new Set(['live music', 'music', 'club / dj', 'club/dj', 'dj']);
-
-// ...but a city-scale festival isn't "a music event you'd skip", it's a
-// thing that happens to the city. Marquee events stay visible even with the
-// music filter on. The bar is the curated notability prior, which only
-// data/annual_events.json sets - edit it there, not here. At 70 that means
-// Outside Lands, Hardly Strictly, Portola and Stern Grove get through,
-// while a club night or a mid-size touring show does not.
-const MARQUEE_NOTABILITY = 70;
-
-function isMarqueeEvent(e) {
-  return (e.notability || 0) >= MARQUEE_NOTABILITY;
-}
-
-function isMusicEvent(e) {
-  if (isMarqueeEvent(e)) return false;
-  if (e.source === '19hz_bayarea') return true;
-  return (e.categories || []).some(c => MUSIC_LABELS.has(String(c).trim().toLowerCase()));
-}
-
-function getFilteredEvents() {
+function baseFiltered() {
   const search = document.getElementById('searchBox').value.toLowerCase();
-  const category = document.getElementById('categoryBox').value.toLowerCase();
   const freeOnly = document.getElementById('freeOnly').checked;
-  const hideMusic = document.getElementById('hideMusic').checked;
-
   return allEvents.filter(e => {
     if (freeOnly && !e.is_free) return false;
-    if (hideMusic && isMusicEvent(e)) return false;
-    if (category && !e.categories.join(',').toLowerCase().includes(category)) return false;
-    if (search && !(e.title.toLowerCase().includes(search) || e.venue.toLowerCase().includes(search))) return false;
+    if (search && !(e.title.toLowerCase().includes(search) || (e.venue || '').toLowerCase().includes(search))) return false;
     return true;
   });
 }
 
+function getFilteredEvents() {
+  return baseFiltered().filter(e => [...eventKinds(e)].some(k => activeKinds.has(k)));
+}
+
 function render() {
-  const filtered = getFilteredEvents();
-  if (viewMode === 'calendar') {
-    renderCalendarView(filtered);
-  } else {
-    renderListView(filtered);
-  }
+  renderKindChips();
+  renderCalendarView(getFilteredEvents());
 }
 
-function currentSort() {
-  const el = document.getElementById('sortBy');
-  return el ? el.value : 'date';
-}
-
+// The day list pages 5 at a time and stops at 4 pages: past the top 20 of a
+// single day the ranking has stopped telling you anything, and a busy
+// Saturday can carry 100+ listings.
 const PAGE_SIZE = 5;
+const MAX_PAGES = 4;
 let currentPage = 1;
 const carouselIndex = {};
 let leafletPromise = null;
@@ -248,11 +297,12 @@ function resetPaging() {
 function goToPage(n) {
   currentPage = n;
   render();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  const detail = document.querySelector('.day-detail');
+  if (detail) detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function rankedOrder(events) {
-  // Scored first, best down; anything unranked trails in date order rather
+  // Scored first, best down; anything unranked trails in time order rather
   // than vanishing.
   const scored = events.filter(e => e.score != null).sort((a, b) => b.score - a.score);
   const unscored = events.filter(e => e.score == null).sort(byStart);
@@ -282,28 +332,38 @@ function pagerHtml(total) {
   </div>`;
 }
 
-function topOfWeekPicks(events) {
-  // "This week" is the next seven days from today, not the calendar week -
-  // on a Saturday, a Mon-Sun week would have almost nothing left in it.
+// --- top 5 of the coming month ---------------------------------------------
+// "The month" runs from today to the same date next month, not the calendar
+// month: on the 28th, "September" would have almost nothing left in it. It
+// also ignores which month the grid is showing, so paging the calendar to
+// March doesn't change what's coming up.
+function upcomingWindow() {
   const now = new Date();
-  const today = dateKey(now);
-  const until = dateKey(new Date(now.getTime() + 7 * 86400000));
+  const until = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
+  return { from: dateKey(now), until: dateKey(until) };
+}
 
+function topPicks(events) {
+  const { from, until } = upcomingWindow();
+  // An event that started before today but is still running (a multi-day
+  // festival) counts: it's something you can still go to.
   return events
-    .filter(e => e.start_ts && e.start_ts.slice(0, 10) >= today && e.start_ts.slice(0, 10) <= until)
-    .filter(e => e.score != null)
+    .filter(e => e.start_ts && e.score != null)
+    .filter(e => {
+      const start = e.start_ts.slice(0, 10);
+      const end = (e.end_ts || e.start_ts).slice(0, 10);
+      return start < until && end >= from;
+    })
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
 }
 
-function topOfWeekHtml(picks) {
-  const now = new Date();
-  const today = dateKey(now);
-  const until = dateKey(new Date(now.getTime() + 7 * 86400000));
+function topPicksHtml(picks) {
   if (!picks.length) return '';
+  const { from, until } = upcomingWindow();
   return `<div class="top-week">
-    <h2>Top ${picks.length} of the week</h2>
-    <div class="top-sub">Best matches in the next 7 days, out of everything on between ${shortDate(today)} and ${shortDate(until)}.</div>
+    <h2>Top ${picks.length} this month</h2>
+    <div class="top-sub">Best matches for profile.md between ${shortDate(from)} and ${shortDate(until)}.</div>
     ${picks.map((e, i) => `<div class="top-pick"><div class="top-rank">${i + 1}</div>${cardHtml(e)}</div>`).join('')}
   </div>`;
 }
@@ -312,82 +372,12 @@ function shortDate(key) {
   return new Date(key + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-function renderListView(filtered) {
-  const results = document.getElementById('results');
-  const sorted = currentSort() === 'score' ? rankedOrder(filtered) : filtered.slice().sort(byStart);
-
-  if (!sorted.length) {
-    results.innerHTML = '<div class="empty">No events match. Try clearing filters.</div>';
-    return;
-  }
-
-  const pageItems = pageSlice(sorted);
-  const picks = topOfWeekPicks(filtered);
-  const body = currentSort() === 'score'
-    ? pageItems.map(cardHtml).join('')
-    : groupedHtml(pageItems);
-
-  results.innerHTML = topOfWeekHtml(picks) + listNote(sorted) + body + pagerHtml(sorted.length);
-
-  // The map carries everything currently on screen, top picks included -
-  // otherwise clicking a pick reports "no pin" even though it has one.
-  const onScreen = [];
-  const seen = new Set();
-  for (const e of picks.concat(pageItems)) {
-    if (seen.has(e.id)) continue;
-    seen.add(e.id);
-    onScreen.push(e);
-  }
-  updateSideMap(onScreen, 'Nothing shown here has a mapped location.');
-  applyCardSelection();
-}
-
-function listNote(sorted) {
-  if (currentSort() !== 'score') return '';
-  const unranked = sorted.filter(e => e.score == null).length;
-  if (!sorted.some(e => e.score != null)) {
-    return '<div class="rank-note">Nothing is ranked yet - run <code>cli rank</code>.</div>';
-  }
-  return `<div class="rank-note">Ranked by how well each event matches profile.md${unranked ? ` - ${unranked} not yet ranked, listed last` : ''}.</div>`;
-}
-
-function groupedHtml(pageItems) {
-  // Group only what's on this page, so a page is always PAGE_SIZE events
-  // regardless of how they fall across months.
-  const groups = {};
-  for (const e of pageItems) {
-    const key = e.start_ts ? e.start_ts.slice(0, 7) : 'Undated';
-    (groups[key] = groups[key] || []).push(e);
-  }
-  return Object.keys(groups).sort().map(key => `
-    <div class="month-group">
-      <h2>${monthLabel(key)}</h2>
-      ${groups[key].map(cardHtml).join('')}
-    </div>
-  `).join('');
-}
-
-function initCalendarPosition() {
-  // Open the calendar on the month of the earliest event, not today's month -
-  // the export can lead or lag the current date.
-  const dated = allEvents.filter(e => e.start_ts).map(e => e.start_ts).sort();
-  const ref = dated.length ? new Date(dated[0]) : new Date();
-  calYear = ref.getFullYear();
-  calMonth = ref.getMonth();
-}
-
-function switchView(mode) {
-  viewMode = mode;
-  document.getElementById('listBtn').classList.toggle('primary', mode === 'list');
-  document.getElementById('calBtn').classList.toggle('primary', mode === 'calendar');
-  render();
-}
-
 function changeMonth(delta) {
   calMonth += delta;
   if (calMonth < 0) { calMonth = 11; calYear--; }
   if (calMonth > 11) { calMonth = 0; calYear++; }
   selectedDay = null;
+  resetPaging();
   render();
 }
 
@@ -396,11 +386,14 @@ function goToday() {
   calYear = d.getFullYear();
   calMonth = d.getMonth();
   selectedDay = dateKey(d);
+  resetPaging();
   render();
 }
 
 function selectDay(key) {
-  selectedDay = (selectedDay === key) ? null : key;
+  if (selectedDay === key) return;
+  selectedDay = key;
+  resetPaging();
   render();
 }
 
@@ -410,14 +403,10 @@ function dateKey(d) {
 
 function renderCalendarView(filtered) {
   const byDay = {};
-  let undated = 0;
   for (const e of filtered) {
-    if (!e.start_ts) { undated++; continue; }
+    if (!e.start_ts) continue;
     const key = e.start_ts.slice(0, 10);
     (byDay[key] = byDay[key] || []).push(e);
-  }
-  for (const k of Object.keys(byDay)) {
-    byDay[k].sort((a, b) => a.start_ts.localeCompare(b.start_ts));
   }
 
   const monthName = new Date(calYear, calMonth, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
@@ -431,7 +420,7 @@ function renderCalendarView(filtered) {
   for (let day = 1; day <= daysInMonth; day++) {
     const key = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const dayEvents = byDay[key] || [];
-    const byRank = dayEvents.slice().sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+    const byRank = rankedOrder(dayEvents);
     const classes = ['cal-day'];
     if (key === todayKey) classes.push('today');
     if (key === selectedDay) classes.push('selected');
@@ -446,15 +435,13 @@ function renderCalendarView(filtered) {
       + `<div class="cal-day-num">${day}</div>${chips}${more}${count}</div>`;
   }
 
-  const detailEvents = selectedDay ? (byDay[selectedDay] || []) : [];
-  const detailLabel = selectedDay
-    ? new Date(selectedDay + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-    : null;
-  const undatedNote = undated
-    ? `<div class="undated-note">${undated} undated event${undated === 1 ? '' : 's'} cannot be placed on the grid - switch to List view to see ${undated === 1 ? 'it' : 'them'} under &ldquo;Undated&rdquo;.</div>`
-    : '';
+  const picks = topPicks(filtered);
+  const dayAll = selectedDay ? rankedOrder(byDay[selectedDay] || []) : [];
+  const dayCapped = dayAll.slice(0, PAGE_SIZE * MAX_PAGES);
+  const pageItems = pageSlice(dayCapped);
 
   document.getElementById('results').innerHTML = `
+    ${topPicksHtml(picks)}
     <div class="calendar-nav">
       <button onclick="changeMonth(-1)">&lsaquo; Prev</button>
       <h2>${monthName}</h2>
@@ -465,27 +452,34 @@ function renderCalendarView(filtered) {
       ${dows.map(d => `<div class="cal-dow">${d}</div>`).join('')}
       ${cells}
     </div>
-    ${undatedNote}
     <div class="day-detail">
-      ${selectedDay ? dayDetailHtml(detailLabel, detailEvents) : '<div class="empty">Click a day to see its events.</div>'}
+      ${selectedDay ? dayDetailHtml(dayAll, dayCapped, pageItems) : '<div class="empty">Click a day to see its events.</div>'}
     </div>
   `;
 
-  updateSideMap(
-    selectedDay ? detailEvents : [],
-    selectedDay ? 'No mapped locations for this day.' : 'Pick a day to map its events.'
-  );
+  // The map carries everything on screen, top picks included - otherwise
+  // clicking a pick reports "no pin" even though it has one.
+  const onScreen = [];
+  const seen = new Set();
+  for (const e of pageItems.concat(picks)) {
+    if (seen.has(e.id)) continue;
+    seen.add(e.id);
+    onScreen.push(e);
+  }
+  updateSideMap(onScreen, 'Nothing shown here has a mapped location.');
   applyCardSelection();
-
 }
 
-function dayDetailHtml(label, events) {
-  if (!events.length) {
-    return `<h3>${label}</h3><div class="empty">No events this day.</div>`;
+function dayDetailHtml(all, capped, pageItems) {
+  const label = new Date(selectedDay + 'T00:00:00')
+    .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  if (!all.length) {
+    return `<h3>${label}</h3><div class="empty">No events this day match the filters.</div>`;
   }
-  // The map lives in the right-hand column and follows the selected day, so
-  // the detail panel is just the list of events.
-  return `<h3>${label}</h3>${events.map(cardHtml).join('')}`;
+  const cap = all.length > capped.length
+    ? `<div class="day-cap">Showing the top ${capped.length} of ${all.length}. Search or switch kinds off to see others.</div>`
+    : '';
+  return `<h3>${label}</h3>${pageItems.map(cardHtml).join('')}${pagerHtml(capped.length)}${cap}`;
 }
 
 function mediaHtml(e) {
@@ -683,13 +677,19 @@ function loadLeaflet() {
   // the library shouldn't be on the critical path of every page load.
   if (leafletPromise) return leafletPromise;
   leafletPromise = new Promise((resolve, reject) => {
-    const css = document.createElement('link');
-    css.rel = 'stylesheet';
-    css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';
-    document.head.appendChild(css);
+    // Wait for the stylesheet as well as the script: a map built before
+    // leaflet.css applies measures its container wrong and can fit the pins
+    // at world zoom on a cold load.
+    const cssReady = new Promise(done => {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';
+      css.onload = css.onerror = done;
+      document.head.appendChild(css);
+    });
     const js = document.createElement('script');
     js.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js';
-    js.onload = () => resolve(window.L);
+    js.onload = () => cssReady.then(() => resolve(window.L));
     js.onerror = () => reject(new Error('Leaflet failed to load'));
     document.head.appendChild(js);
   });
@@ -719,13 +719,6 @@ function formatWhen(e) {
     }
   }
   return e.date_approx ? `~ ${text}` : text;
-}
-
-function monthLabel(key) {
-  if (key === 'Undated') return 'Undated';
-  const [y, m] = key.split('-');
-  const d = new Date(Number(y), Number(m) - 1, 1);
-  return d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
 }
 
 function cardHtml(e) {
