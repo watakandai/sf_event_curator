@@ -60,6 +60,37 @@
   .event-why { font-size: 12px; color: var(--muted); margin-top: 4px; font-style: italic; }
   .toolbar select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; background: var(--card); color: var(--text); }
   .rank-note { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  /* --- event media (carousel) --- */
+  .event-media { position: relative; overflow: hidden; border-radius: 8px; margin-bottom: 10px; background: #f0f0f0; }
+  .carousel-track { display: flex; transition: transform .25s ease; }
+  .carousel-track img { width: 100%; flex: 0 0 100%; height: 190px; object-fit: cover; display: block; }
+  .carousel-btn { position: absolute; top: 50%; transform: translateY(-50%); border: none; background: rgba(0,0,0,.55); color: #fff; width: 28px; height: 28px; border-radius: 50%; font-size: 14px; line-height: 1; padding: 0; cursor: pointer; }
+  .carousel-btn.prev { left: 6px; }
+  .carousel-btn.next { right: 6px; }
+  .carousel-count { position: absolute; bottom: 6px; right: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; border-radius: 10px; padding: 1px 7px; }
+  /* --- when / where --- */
+  .event-when { font-size: 13px; color: var(--text); margin-bottom: 2px; }
+  .event-where a { color: var(--accent); text-decoration: none; font-size: 13px; }
+  .event-where a:hover { text-decoration: underline; }
+  /* --- pagination --- */
+  .pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin: 1.25rem 0 .5rem; }
+  .pager span { font-size: 13px; color: var(--muted); }
+  .pager button[disabled] { opacity: .4; cursor: default; }
+  /* --- top picks of the week --- */
+  .top-week { margin-bottom: 1.75rem; }
+  .top-week h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .top-week .top-sub { font-size: 12px; color: var(--muted); margin: 6px 0 10px; }
+  .top-pick { display: flex; gap: 10px; align-items: flex-start; }
+  .top-rank { flex: 0 0 22px; font-size: 18px; font-weight: 700; color: var(--accent); line-height: 1.4; }
+  .top-pick > .event-card { flex: 1; margin-bottom: 10px; }
+  /* --- day map --- */
+  .map-toggle { display: flex; gap: 6px; margin-bottom: 10px; }
+  .day-map { height: 320px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #eee; }
+  .map-note { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  @media (max-width: 640px) {
+    .carousel-track img { height: 150px; }
+    .day-map { height: 240px; }
+  }
 </style>
 </head>
 <body>
@@ -70,10 +101,10 @@
 <main>
   <div class="status" id="status">Loading...</div>
   <div class="toolbar">
-    <input type="text" id="searchBox" placeholder="Search title or venue..." oninput="render()">
-    <input type="text" id="categoryBox" placeholder="Category contains..." oninput="render()">
-    <label><input type="checkbox" id="freeOnly" onchange="render()"> Free only</label>
-    <select id="sortBy" onchange="render()" aria-label="Sort order">
+    <input type="text" id="searchBox" placeholder="Search title or venue..." oninput="resetPaging();render()">
+    <input type="text" id="categoryBox" placeholder="Category contains..." oninput="resetPaging();render()">
+    <label><input type="checkbox" id="freeOnly" onchange="resetPaging();render()"> Free only</label>
+    <select id="sortBy" onchange="resetPaging();render()" aria-label="Sort order">
       <option value="score">Sort: best match</option>
       <option value="date">Sort: soonest first</option>
     </select>
@@ -143,49 +174,115 @@ function currentSort() {
   return el ? el.value : 'date';
 }
 
+const PAGE_SIZE = 5;
+let currentPage = 1;
+const carouselIndex = {};
+let dayViewMode = 'list';
+let leafletPromise = null;
+let dayMap = null;
+
+function resetPaging() {
+  currentPage = 1;
+}
+
+function goToPage(n) {
+  currentPage = n;
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function rankedOrder(events) {
+  // Scored first, best down; anything unranked trails in date order rather
+  // than vanishing.
+  const scored = events.filter(e => e.score != null).sort((a, b) => b.score - a.score);
+  const unscored = events.filter(e => e.score == null).sort(byStart);
+  return scored.concat(unscored);
+}
+
+function byStart(a, b) {
+  return (a.start_ts || '').localeCompare(b.start_ts || '');
+}
+
+function pageSlice(list) {
+  const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  if (currentPage > pages) currentPage = pages;
+  const start = (currentPage - 1) * PAGE_SIZE;
+  return list.slice(start, start + PAGE_SIZE);
+}
+
+function pagerHtml(total) {
+  const pages = Math.ceil(total / PAGE_SIZE);
+  if (pages <= 1) return '';
+  const first = (currentPage - 1) * PAGE_SIZE + 1;
+  const last = Math.min(total, currentPage * PAGE_SIZE);
+  return `<div class="pager">
+    <button onclick="goToPage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''}>&lsaquo; Prev</button>
+    <span>${first}-${last} of ${total} &middot; page ${currentPage}/${pages}</span>
+    <button onclick="goToPage(${currentPage + 1})" ${currentPage === pages ? 'disabled' : ''}>Next &rsaquo;</button>
+  </div>`;
+}
+
+function topOfWeekHtml(events) {
+  // "This week" is the next seven days from today, not the calendar week -
+  // on a Saturday, a Mon-Sun week would have almost nothing left in it.
+  const now = new Date();
+  const today = dateKey(now);
+  const horizon = new Date(now.getTime() + 7 * 86400000);
+  const until = dateKey(horizon);
+
+  const picks = events
+    .filter(e => e.start_ts && e.start_ts.slice(0, 10) >= today && e.start_ts.slice(0, 10) <= until)
+    .filter(e => e.score != null)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+
+  if (!picks.length) return '';
+  return `<div class="top-week">
+    <h2>Top ${picks.length} of the week</h2>
+    <div class="top-sub">Best matches in the next 7 days, out of everything on between ${shortDate(today)} and ${shortDate(until)}.</div>
+    ${picks.map((e, i) => `<div class="top-pick"><div class="top-rank">${i + 1}</div>${cardHtml(e)}</div>`).join('')}
+  </div>`;
+}
+
+function shortDate(key) {
+  return new Date(key + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 function renderListView(filtered) {
-  if (currentSort() === 'score') {
-    renderRankedList(filtered);
+  const results = document.getElementById('results');
+  const sorted = currentSort() === 'score' ? rankedOrder(filtered) : filtered.slice().sort(byStart);
+
+  if (!sorted.length) {
+    results.innerHTML = '<div class="empty">No events match. Try clearing filters.</div>';
     return;
   }
-  renderGroupedList(filtered);
+
+  const pageItems = pageSlice(sorted);
+  const body = currentSort() === 'score'
+    ? pageItems.map(cardHtml).join('')
+    : groupedHtml(pageItems);
+
+  results.innerHTML = topOfWeekHtml(filtered) + listNote(sorted) + body + pagerHtml(sorted.length);
 }
 
-function renderRankedList(filtered) {
-  // Scored events first, best down; anything the ranker hasn't seen yet
-  // trails behind in date order rather than vanishing.
-  const scored = filtered.filter(e => e.score != null).sort((a, b) => b.score - a.score);
-  const unscored = filtered.filter(e => e.score == null)
-    .sort((a, b) => (a.start_ts || '').localeCompare(b.start_ts || ''));
-  const container = document.getElementById('results');
-  if (!scored.length && !unscored.length) {
-    container.innerHTML = '<div class="empty">No events match. Try clearing filters.</div>';
-    return;
+function listNote(sorted) {
+  if (currentSort() !== 'score') return '';
+  const unranked = sorted.filter(e => e.score == null).length;
+  if (!sorted.some(e => e.score != null)) {
+    return '<div class="rank-note">Nothing is ranked yet - run <code>cli rank</code>.</div>';
   }
-  const note = scored.length
-    ? `<div class="rank-note">Ranked by how well each event matches profile.md${unscored.length ? ` - ${unscored.length} not yet ranked, listed after` : ''}.</div>`
-    : '<div class="rank-note">Nothing is ranked yet - run <code>cli rank</code>.</div>';
-  container.innerHTML = note + scored.concat(unscored).map(cardHtml).join('');
+  return `<div class="rank-note">Ranked by how well each event matches profile.md${unranked ? ` - ${unranked} not yet ranked, listed last` : ''}.</div>`;
 }
 
-function renderGroupedList(filtered) {
+function groupedHtml(pageItems) {
+  // Group only what's on this page, so a page is always PAGE_SIZE events
+  // regardless of how they fall across months.
   const groups = {};
-  for (const e of filtered) {
+  for (const e of pageItems) {
     const key = e.start_ts ? e.start_ts.slice(0, 7) : 'Undated';
     (groups[key] = groups[key] || []).push(e);
   }
-  const sortedKeys = Object.keys(groups).sort();
-  for (const k of sortedKeys) {
-    groups[k].sort((a, b) => (a.start_ts || '').localeCompare(b.start_ts || ''));
-  }
-
-  const container = document.getElementById('results');
-  if (sortedKeys.length === 0) {
-    container.innerHTML = '<div class="empty">No events match. Try clearing filters.</div>';
-    return;
-  }
-
-  container.innerHTML = sortedKeys.map(key => `
+  return Object.keys(groups).sort().map(key => `
     <div class="month-group">
       <h2>${monthLabel(key)}</h2>
       ${groups[key].map(cardHtml).join('')}
@@ -293,24 +390,176 @@ function renderCalendarView(filtered) {
     </div>
     ${undatedNote}
     <div class="day-detail">
-      ${selectedDay
-        ? `<h3>${detailLabel}</h3>` + (detailEvents.length ? detailEvents.map(cardHtml).join('') : '<div class="empty">No events this day.</div>')
-        : '<div class="empty">Click a day to see its events.</div>'}
+      ${selectedDay ? dayDetailHtml(detailLabel, detailEvents) : '<div class="empty">Click a day to see its events.</div>'}
     </div>
   `;
+
+  if (selectedDay && dayViewMode === 'map') {
+    initDayMap(detailEvents);
+  }
+}
+
+function dayDetailHtml(label, events) {
+  if (!events.length) {
+    return `<h3>${label}</h3><div class="empty">No events this day.</div>`;
+  }
+  const located = events.filter(e => e.lat != null && e.lon != null).length;
+  const toggle = `<div class="map-toggle">
+    <button class="${dayViewMode === 'list' ? 'primary' : ''}" onclick="setDayView('list')">List</button>
+    <button class="${dayViewMode === 'map' ? 'primary' : ''}" onclick="setDayView('map')">Map</button>
+  </div>`;
+  const body = dayViewMode === 'map'
+    ? `<div class="day-map" id="dayMap"></div>`
+      + `<div class="map-note">${located} of ${events.length} event${events.length === 1 ? '' : 's'} could be placed on the map.</div>`
+    : events.map(cardHtml).join('');
+  return `<h3>${label}</h3>${toggle}${body}`;
+}
+
+function mediaHtml(e) {
+  const images = (e.images || []).filter(Boolean);
+  if (!images.length) return '';
+  const idx = carouselIndex[e.id] || 0;
+  // Hide the whole media block if the artwork is gone, not just the <img>:
+  // Funcheap enclosure URLs in particular can point at uploads its CDN no
+  // longer serves, and a hidden image inside a visible box leaves a grey
+  // placeholder the height of a photo.
+  const slides = images.map(src =>
+    `<img src="${escapeHtml(src)}" alt="" loading="lazy" onerror="dropImage(this)">`
+  ).join('');
+  // Most events carry a single image; the controls only appear when there is
+  // genuinely something to page through.
+  const controls = images.length > 1 ? `
+    <button class="carousel-btn prev" onclick="carouselStep(${e.id}, -1)" aria-label="Previous image">&lsaquo;</button>
+    <button class="carousel-btn next" onclick="carouselStep(${e.id}, 1)" aria-label="Next image">&rsaquo;</button>
+    <div class="carousel-count" id="cc-${e.id}">${idx + 1}/${images.length}</div>` : '';
+  return `<div class="event-media">
+    <div class="carousel-track" id="ct-${e.id}" style="transform:translateX(-${idx * 100}%)">${slides}</div>
+    ${controls}
+  </div>`;
+}
+
+function carouselStep(id, dir) {
+  // Moves one carousel in place rather than re-rendering the list, so paging
+  // through images doesn't reset scroll position.
+  const track = document.getElementById('ct-' + id);
+  if (!track) return;
+  const count = track.children.length;
+  const next = ((carouselIndex[id] || 0) + dir + count) % count;
+  carouselIndex[id] = next;
+  track.style.transform = `translateX(-${next * 100}%)`;
+  const label = document.getElementById('cc-' + id);
+  if (label) label.textContent = `${next + 1}/${count}`;
+}
+
+function dropImage(img) {
+  const track = img.parentElement;
+  img.remove();
+  if (track && !track.children.length) {
+    const media = track.parentElement;
+    if (media) media.remove();
+  }
+}
+
+function mapsUrl(e) {
+  // Coordinates when the geocoder resolved them, otherwise let Google
+  // interpret the text - a venue name is usually enough for it.
+  const query = (e.lat != null && e.lon != null)
+    ? `${e.lat},${e.lon}`
+    : [e.venue, e.address].filter(Boolean).join(', ');
+  return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(query);
+}
+
+function locationHtml(e) {
+  const venue = (e.venue || '').trim();
+  const address = (e.address || '').trim();
+  if (!venue && !address) return '';
+  const url = escapeHtml(mapsUrl(e));
+  const link = text =>
+    `<div class="event-where"><a href="${url}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)} &#8599;</a></div>`;
+
+  // Show two lines only when the address says something the venue name
+  // doesn't. Several sources put the same string in both fields, which
+  // otherwise prints the venue twice, once plain and once as a link.
+  const redundant = !address || address === venue
+    || venue.includes(address) || address.includes(venue);
+  if (redundant) return link(venue || address);
+  return `<div class="event-meta">${escapeHtml(venue)}</div>` + link(address);
+}
+
+function loadLeaflet() {
+  // Lazily loaded: the map is optional, and most visits never open it, so
+  // the library shouldn't be on the critical path of every page load.
+  if (leafletPromise) return leafletPromise;
+  leafletPromise = new Promise((resolve, reject) => {
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';
+    document.head.appendChild(css);
+    const js = document.createElement('script');
+    js.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js';
+    js.onload = () => resolve(window.L);
+    js.onerror = () => reject(new Error('Leaflet failed to load'));
+    document.head.appendChild(js);
+  });
+  return leafletPromise;
+}
+
+function setDayView(mode) {
+  dayViewMode = mode;
+  render();
+}
+
+function initDayMap(events) {
+  const container = document.getElementById('dayMap');
+  if (!container) return;
+  const located = events.filter(e => e.lat != null && e.lon != null);
+  if (!located.length) {
+    container.innerHTML = '<div class="empty">No mapped locations for this day - none of these venues could be geocoded.</div>';
+    return;
+  }
+  loadLeaflet().then(L => {
+    if (dayMap) { dayMap.remove(); dayMap = null; }
+    dayMap = L.map(container).setView([located[0].lat, located[0].lon], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(dayMap);
+    const markers = located.map(e => {
+      const popup = `<strong>${escapeHtml(e.title)}</strong><br>${escapeHtml(e.venue || e.address || '')}`
+        + `<br><a href="${escapeHtml(mapsUrl(e))}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>`;
+      return L.marker([e.lat, e.lon]).addTo(dayMap).bindPopup(popup);
+    });
+    if (markers.length > 1) {
+      // maxZoom keeps two venues on the same block from zooming to street level.
+      dayMap.fitBounds(L.featureGroup(markers).getBounds().pad(0.2), { maxZoom: 15 });
+    }
+  }).catch(() => {
+    container.innerHTML = '<div class="empty">Map unavailable (could not load Leaflet).</div>';
+  });
 }
 
 function formatWhen(e) {
   if (!e.start_ts) return 'Date TBD';
-  const d = new Date(e.start_ts);
+  const start = new Date(e.start_ts);
+  const end = e.end_ts ? new Date(e.end_ts) : null;
   // Sources differ on whether they carry a time at all: the annual list and
   // DoTheBay are date-only, so their midnight timestamps would otherwise all
   // render as a confident, wrong "12:00 AM".
-  const dateOnly = d.getHours() === 0 && d.getMinutes() === 0;
-  const opts = dateOnly
-    ? { weekday: 'short', month: 'short', day: 'numeric' }
-    : { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
-  const text = d.toLocaleString('en-US', opts);
+  const dateOnly = start.getHours() === 0 && start.getMinutes() === 0;
+  const dayOpts = { weekday: 'short', month: 'short', day: 'numeric' };
+  const timeOpts = { hour: 'numeric', minute: '2-digit' };
+
+  let text = start.toLocaleDateString('en-US', dayOpts);
+  if (!dateOnly) text += ', ' + start.toLocaleTimeString('en-US', timeOpts);
+
+  if (end) {
+    const sameDay = e.end_ts.slice(0, 10) === e.start_ts.slice(0, 10);
+    if (sameDay && !dateOnly) {
+      text += ' \u2013 ' + end.toLocaleTimeString('en-US', timeOpts);
+    } else if (!sameDay) {
+      text += ' \u2013 ' + end.toLocaleDateString('en-US', dayOpts);
+    }
+  }
   return e.date_approx ? `~ ${text}` : text;
 }
 
@@ -338,9 +587,10 @@ function cardHtml(e) {
   const sourceLink = e.url ? `<div class="event-source"><a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer">View source \u2197</a></div>` : '';
   return `
     <div class="event-card">
-      <div class="event-date">${when}</div>
+      ${mediaHtml(e)}
+        <div class="event-when">${when}</div>
       <div class="event-title">${escapeHtml(e.title)}</div>
-      <div class="event-meta">${escapeHtml(e.venue || '')}</div>
+      ${locationHtml(e)}
       <div>${scoreBadge}${annualBadge}${approxBadge}${dothebayBadge}${freeBadge}${badges}</div>
       ${why}
       ${sourceLink}
