@@ -101,6 +101,13 @@
     .map-col { position: static; order: -1; }
     .side-map { height: 260px; }
   }
+  /* --- list <-> map selection --- */
+  .event-card { cursor: pointer; transition: border-color .12s ease, box-shadow .12s ease; }
+  .event-card:hover { border-color: #c9c9c9; }
+  .event-card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(192,57,43,.14); }
+  .leaflet-marker-icon.marker-selected { filter: hue-rotate(140deg) saturate(1.7) drop-shadow(0 0 3px rgba(192,57,43,.9)); z-index: 10000 !important; }
+  .map-hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .map-hint.warn { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -129,6 +136,7 @@
     <aside class="map-col">
       <div class="side-map" id="sideMap"></div>
       <div class="map-note" id="sideMapNote"></div>
+      <div class="map-hint" id="mapHint"></div>
     </aside>
   </div>
 </main>
@@ -266,20 +274,24 @@ function pagerHtml(total) {
   </div>`;
 }
 
-function topOfWeekHtml(events) {
+function topOfWeekPicks(events) {
   // "This week" is the next seven days from today, not the calendar week -
   // on a Saturday, a Mon-Sun week would have almost nothing left in it.
   const now = new Date();
   const today = dateKey(now);
-  const horizon = new Date(now.getTime() + 7 * 86400000);
-  const until = dateKey(horizon);
+  const until = dateKey(new Date(now.getTime() + 7 * 86400000));
 
-  const picks = events
+  return events
     .filter(e => e.start_ts && e.start_ts.slice(0, 10) >= today && e.start_ts.slice(0, 10) <= until)
     .filter(e => e.score != null)
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
+}
 
+function topOfWeekHtml(picks) {
+  const now = new Date();
+  const today = dateKey(now);
+  const until = dateKey(new Date(now.getTime() + 7 * 86400000));
   if (!picks.length) return '';
   return `<div class="top-week">
     <h2>Top ${picks.length} of the week</h2>
@@ -302,12 +314,24 @@ function renderListView(filtered) {
   }
 
   const pageItems = pageSlice(sorted);
+  const picks = topOfWeekPicks(filtered);
   const body = currentSort() === 'score'
     ? pageItems.map(cardHtml).join('')
     : groupedHtml(pageItems);
 
-  results.innerHTML = topOfWeekHtml(filtered) + listNote(sorted) + body + pagerHtml(sorted.length);
-  updateSideMap(pageItems, 'None of the events on this page have a mapped location.');
+  results.innerHTML = topOfWeekHtml(picks) + listNote(sorted) + body + pagerHtml(sorted.length);
+
+  // The map carries everything currently on screen, top picks included -
+  // otherwise clicking a pick reports "no pin" even though it has one.
+  const onScreen = [];
+  const seen = new Set();
+  for (const e of picks.concat(pageItems)) {
+    if (seen.has(e.id)) continue;
+    seen.add(e.id);
+    onScreen.push(e);
+  }
+  updateSideMap(onScreen, 'Nothing shown here has a mapped location.');
+  applyCardSelection();
 }
 
 function listNote(sorted) {
@@ -443,6 +467,7 @@ function renderCalendarView(filtered) {
     selectedDay ? detailEvents : [],
     selectedDay ? 'No mapped locations for this day.' : 'Pick a day to map its events.'
   );
+  applyCardSelection();
 
 }
 
@@ -526,6 +551,72 @@ function locationHtml(e) {
   return `<div class="event-meta">${escapeHtml(venue)}</div>` + link(address);
 }
 
+let selectedEventId = null;
+const markerById = {};
+
+function selectEvent(id, fromMap) {
+  // Toggle off when re-selecting the same event, so there's always a way
+  // back to "nothing in particular".
+  selectedEventId = (selectedEventId === id) ? null : id;
+  applyCardSelection();
+  applyMarkerSelection();
+
+  if (selectedEventId == null) return;
+
+  if (fromMap) {
+    const card = document.querySelector(`.event-card[data-event-id="${selectedEventId}"]`);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+
+  const marker = markerById[selectedEventId];
+  const hint = document.getElementById('mapHint');
+  if (marker && sideMap) {
+    sideMap.setView(marker.getLatLng(), Math.max(sideMap.getZoom(), 14), { animate: true });
+    marker.openPopup();
+    if (hint) { hint.textContent = ''; hint.className = 'map-hint'; }
+    // Below the split breakpoint the map sits above the list, so panning it
+    // would otherwise happen off-screen.
+    if (window.innerWidth <= 900) {
+      const col = document.querySelector('.map-col');
+      if (col) col.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  } else if (hint) {
+    // Silence here would read as a broken click, so say why nothing moved.
+    hint.textContent = 'This one has no mapped location, so there is no pin to show.';
+    hint.className = 'map-hint warn';
+  }
+}
+
+function applyCardSelection() {
+  document.querySelectorAll('.event-card').forEach(card => {
+    const id = Number(card.dataset.eventId);
+    card.classList.toggle('selected', id === selectedEventId);
+  });
+}
+
+function applyMarkerSelection() {
+  for (const [id, marker] of Object.entries(markerById)) {
+    const icon = marker._icon;
+    if (!icon) continue;
+    icon.classList.toggle('marker-selected', Number(id) === selectedEventId);
+  }
+}
+
+function initSelectionHandlers() {
+  // Delegated, because #results is rewritten on every render while this
+  // container is not - so the handler is attached exactly once.
+  const results = document.getElementById('results');
+  if (!results) return;
+  results.addEventListener('click', event => {
+    // Links, buttons and carousel arrows keep their own behaviour.
+    if (event.target.closest('a, button, input, select')) return;
+    const card = event.target.closest('.event-card');
+    if (!card || !card.dataset.eventId) return;
+    selectEvent(Number(card.dataset.eventId), false);
+  });
+}
+
 function updateSideMap(events, emptyMessage) {
   const container = document.getElementById('sideMap');
   const note = document.getElementById('sideMapNote');
@@ -557,13 +648,18 @@ function updateSideMap(events, emptyMessage) {
       sideMarkerLayer = L.layerGroup().addTo(sideMap);
     }
     sideMarkerLayer.clearLayers();
+    for (const key of Object.keys(markerById)) delete markerById[key];
     const markers = located.map(e => {
       const popup = `<strong>${escapeHtml(e.title)}</strong><br>${escapeHtml(e.venue || e.address || '')}`
         + `<br><a href="${escapeHtml(mapsUrl(e))}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>`;
-      return L.marker([e.lat, e.lon]).bindPopup(popup).addTo(sideMarkerLayer);
+      const marker = L.marker([e.lat, e.lon]).bindPopup(popup).addTo(sideMarkerLayer);
+      marker.on('click', () => selectEvent(e.id, true));
+      markerById[e.id] = marker;
+      return marker;
     });
     // The container is sized by CSS that may have changed since creation.
     sideMap.invalidateSize();
+    applyMarkerSelection();
     if (markers.length > 1) {
       sideMap.fitBounds(L.featureGroup(markers).getBounds().pad(0.2), { maxZoom: 15 });
     } else {
@@ -640,7 +736,7 @@ function cardHtml(e) {
 
   const sourceLink = e.url ? `<div class="event-source"><a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer">View source \u2197</a></div>` : '';
   return `
-    <div class="event-card">
+    <div class="event-card" data-event-id="${e.id}">
       ${mediaHtml(e)}
         <div class="event-when">${when}</div>
       <div class="event-title">${escapeHtml(e.title)}</div>
@@ -656,6 +752,7 @@ function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+initSelectionHandlers();
 loadEvents();
 </script>
 </body>

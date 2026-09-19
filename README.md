@@ -18,7 +18,9 @@ read-only static export for GitHub Pages.
 - **List and calendar views**, sortable by best match or by date, paginated
   5 per page, with a "Top 5 of the week" section above the list
 - **A persistent map beside the results**, Yelp-style: it follows the current
-  page in list view and the selected day in calendar view
+  page in list view and the selected day in calendar view, and selection is
+  two-way - click a card to spotlight its pin, click a pin to highlight and
+  scroll to its card
 - **Music hidden by default** (it's about two thirds of the corpus), except
   for marquee festivals - see Filtering
 - **Event artwork, times and mapped locations**: cover images where a source
