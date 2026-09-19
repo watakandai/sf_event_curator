@@ -11,7 +11,7 @@
   header { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); background: var(--card); }
   header h1 { font-size: 1.25rem; margin: 0 0 4px; }
   header p { font-size: 13px; color: var(--muted); margin: 0; }
-  main { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+  main { max-width: 1240px; margin: 0 auto; padding: 1.5rem; }
   .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1.25rem; }
   .toolbar input[type=text] { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
   .toolbar label { font-size: 13px; display: flex; align-items: center; gap: 4px; color: var(--muted); }
@@ -91,6 +91,16 @@
     .carousel-track img { height: 150px; }
     .day-map { height: 240px; }
   }
+  /* --- Yelp-style split: results left, persistent map right --- */
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; }
+  .map-col { position: sticky; top: 14px; }
+  .side-map { height: 520px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #eef0f2; }
+  .side-map-empty { display: flex; align-items: center; justify-content: center; height: 100%; padding: 1rem; text-align: center; font-size: 13px; color: var(--muted); }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .map-col { position: static; order: -1; }
+    .side-map { height: 260px; }
+  }
 </style>
 </head>
 <body>
@@ -104,6 +114,7 @@
     <input type="text" id="searchBox" placeholder="Search title or venue..." oninput="resetPaging();render()">
     <input type="text" id="categoryBox" placeholder="Category contains..." oninput="resetPaging();render()">
     <label><input type="checkbox" id="freeOnly" onchange="resetPaging();render()"> Free only</label>
+    <label><input type="checkbox" id="hideMusic" checked onchange="resetPaging();render()"> Hide music</label>
     <select id="sortBy" onchange="resetPaging();render()" aria-label="Sort order">
       <option value="score">Sort: best match</option>
       <option value="date">Sort: soonest first</option>
@@ -113,7 +124,13 @@
       <button id="calBtn" onclick="switchView('calendar')">Calendar</button>
     </div>
   </div>
-  <div id="results"></div>
+  <div class="layout">
+    <div class="results-col"><div id="results"></div></div>
+    <aside class="map-col">
+      <div class="side-map" id="sideMap"></div>
+      <div class="map-note" id="sideMapNote"></div>
+    </aside>
+  </div>
 </main>
 <footer>
   This page has no way to add or edit events - it's a static export of the
@@ -147,13 +164,40 @@ async function loadEvents() {
   render();
 }
 
+// Music is the single biggest slice of the corpus - 19hz is an electronic
+// music listing end to end - so this is a filter rather than a dropped
+// source: the events stay fetched and ranked, they're just hidden by
+// default. Genre tags aren't enumerated here because the 19hz source check
+// already covers all 190 of them.
+const MUSIC_LABELS = new Set(['live music', 'music', 'club / dj', 'club/dj', 'dj']);
+
+// ...but a city-scale festival isn't "a music event you'd skip", it's a
+// thing that happens to the city. Marquee events stay visible even with the
+// music filter on. The bar is the curated notability prior, which only
+// data/annual_events.json sets - edit it there, not here. At 70 that means
+// Outside Lands, Hardly Strictly, Portola and Stern Grove get through,
+// while a club night or a mid-size touring show does not.
+const MARQUEE_NOTABILITY = 70;
+
+function isMarqueeEvent(e) {
+  return (e.notability || 0) >= MARQUEE_NOTABILITY;
+}
+
+function isMusicEvent(e) {
+  if (isMarqueeEvent(e)) return false;
+  if (e.source === '19hz_bayarea') return true;
+  return (e.categories || []).some(c => MUSIC_LABELS.has(String(c).trim().toLowerCase()));
+}
+
 function getFilteredEvents() {
   const search = document.getElementById('searchBox').value.toLowerCase();
   const category = document.getElementById('categoryBox').value.toLowerCase();
   const freeOnly = document.getElementById('freeOnly').checked;
+  const hideMusic = document.getElementById('hideMusic').checked;
 
   return allEvents.filter(e => {
     if (freeOnly && !e.is_free) return false;
+    if (hideMusic && isMusicEvent(e)) return false;
     if (category && !(e.categories || []).join(',').toLowerCase().includes(category)) return false;
     if (search && !(e.title.toLowerCase().includes(search) || (e.venue || '').toLowerCase().includes(search))) return false;
     return true;
@@ -177,9 +221,9 @@ function currentSort() {
 const PAGE_SIZE = 5;
 let currentPage = 1;
 const carouselIndex = {};
-let dayViewMode = 'list';
 let leafletPromise = null;
-let dayMap = null;
+let sideMap = null;
+let sideMarkerLayer = null;
 
 function resetPaging() {
   currentPage = 1;
@@ -263,6 +307,7 @@ function renderListView(filtered) {
     : groupedHtml(pageItems);
 
   results.innerHTML = topOfWeekHtml(filtered) + listNote(sorted) + body + pagerHtml(sorted.length);
+  updateSideMap(pageItems, 'None of the events on this page have a mapped location.');
 }
 
 function listNote(sorted) {
@@ -394,25 +439,20 @@ function renderCalendarView(filtered) {
     </div>
   `;
 
-  if (selectedDay && dayViewMode === 'map') {
-    initDayMap(detailEvents);
-  }
+  updateSideMap(
+    selectedDay ? detailEvents : [],
+    selectedDay ? 'No mapped locations for this day.' : 'Pick a day to map its events.'
+  );
+
 }
 
 function dayDetailHtml(label, events) {
   if (!events.length) {
     return `<h3>${label}</h3><div class="empty">No events this day.</div>`;
   }
-  const located = events.filter(e => e.lat != null && e.lon != null).length;
-  const toggle = `<div class="map-toggle">
-    <button class="${dayViewMode === 'list' ? 'primary' : ''}" onclick="setDayView('list')">List</button>
-    <button class="${dayViewMode === 'map' ? 'primary' : ''}" onclick="setDayView('map')">Map</button>
-  </div>`;
-  const body = dayViewMode === 'map'
-    ? `<div class="day-map" id="dayMap"></div>`
-      + `<div class="map-note">${located} of ${events.length} event${events.length === 1 ? '' : 's'} could be placed on the map.</div>`
-    : events.map(cardHtml).join('');
-  return `<h3>${label}</h3>${toggle}${body}`;
+  // The map lives in the right-hand column and follows the selected day, so
+  // the detail panel is just the list of events.
+  return `<h3>${label}</h3>${events.map(cardHtml).join('')}`;
 }
 
 function mediaHtml(e) {
@@ -486,6 +526,54 @@ function locationHtml(e) {
   return `<div class="event-meta">${escapeHtml(venue)}</div>` + link(address);
 }
 
+function updateSideMap(events, emptyMessage) {
+  const container = document.getElementById('sideMap');
+  const note = document.getElementById('sideMapNote');
+  if (!container) return;
+
+  const located = (events || []).filter(e => e.lat != null && e.lon != null);
+  if (note) {
+    note.textContent = located.length
+      ? `${located.length} of ${events.length} shown here could be placed on the map.`
+      : '';
+  }
+
+  if (!located.length) {
+    // Tear the map down rather than leaving the previous pins behind, which
+    // would show locations that aren't in the current results.
+    if (sideMap) { sideMap.remove(); sideMap = null; sideMarkerLayer = null; }
+    container.innerHTML = `<div class="side-map-empty">${escapeHtml(emptyMessage || 'Nothing here has a mapped location.')}</div>`;
+    return;
+  }
+
+  loadLeaflet().then(L => {
+    if (!sideMap) {
+      container.innerHTML = '';
+      sideMap = L.map(container).setView([located[0].lat, located[0].lon], 12);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      }).addTo(sideMap);
+      sideMarkerLayer = L.layerGroup().addTo(sideMap);
+    }
+    sideMarkerLayer.clearLayers();
+    const markers = located.map(e => {
+      const popup = `<strong>${escapeHtml(e.title)}</strong><br>${escapeHtml(e.venue || e.address || '')}`
+        + `<br><a href="${escapeHtml(mapsUrl(e))}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>`;
+      return L.marker([e.lat, e.lon]).bindPopup(popup).addTo(sideMarkerLayer);
+    });
+    // The container is sized by CSS that may have changed since creation.
+    sideMap.invalidateSize();
+    if (markers.length > 1) {
+      sideMap.fitBounds(L.featureGroup(markers).getBounds().pad(0.2), { maxZoom: 15 });
+    } else {
+      sideMap.setView([located[0].lat, located[0].lon], 14);
+    }
+  }).catch(() => {
+    container.innerHTML = '<div class="side-map-empty">Map unavailable (could not load Leaflet).</div>';
+  });
+}
+
 function loadLeaflet() {
   // Lazily loaded: the map is optional, and most visits never open it, so
   // the library shouldn't be on the critical path of every page load.
@@ -502,40 +590,6 @@ function loadLeaflet() {
     document.head.appendChild(js);
   });
   return leafletPromise;
-}
-
-function setDayView(mode) {
-  dayViewMode = mode;
-  render();
-}
-
-function initDayMap(events) {
-  const container = document.getElementById('dayMap');
-  if (!container) return;
-  const located = events.filter(e => e.lat != null && e.lon != null);
-  if (!located.length) {
-    container.innerHTML = '<div class="empty">No mapped locations for this day - none of these venues could be geocoded.</div>';
-    return;
-  }
-  loadLeaflet().then(L => {
-    if (dayMap) { dayMap.remove(); dayMap = null; }
-    dayMap = L.map(container).setView([located[0].lat, located[0].lon], 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    }).addTo(dayMap);
-    const markers = located.map(e => {
-      const popup = `<strong>${escapeHtml(e.title)}</strong><br>${escapeHtml(e.venue || e.address || '')}`
-        + `<br><a href="${escapeHtml(mapsUrl(e))}" target="_blank" rel="noopener noreferrer">Open in Google Maps</a>`;
-      return L.marker([e.lat, e.lon]).addTo(dayMap).bindPopup(popup);
-    });
-    if (markers.length > 1) {
-      // maxZoom keeps two venues on the same block from zooming to street level.
-      dayMap.fitBounds(L.featureGroup(markers).getBounds().pad(0.2), { maxZoom: 15 });
-    }
-  }).catch(() => {
-    container.innerHTML = '<div class="empty">Map unavailable (could not load Leaflet).</div>';
-  });
 }
 
 function formatWhen(e) {
