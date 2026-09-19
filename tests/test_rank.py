@@ -188,7 +188,7 @@ def test_unknown_provider_is_rejected():
 
 def test_all_shipped_providers_are_well_formed():
     """Adding a provider must stay a one-liner: env var, default model, callable."""
-    assert {"anthropic", "gemini", "github-models"} <= set(rank.PROVIDERS)
+    assert {"anthropic", "gemini"} <= set(rank.PROVIDERS)
     for name, (env, model, call) in rank.PROVIDERS.items():
         assert env and model and callable(call), name
 

@@ -9,11 +9,10 @@ Two rankers, deliberately layered:
 
 - `llm_scores` answers the different and more useful question: "would THIS
   person want to go?", reading a plain-English profile the user maintains in
-  profile.md. It needs a key and costs money (or uses GitHub Models' free
-  tier), so it's opt-in, batched, and cached by profile revision - only
+  profile.md. It needs a key and costs money, so it's opt-in, batched, and cached by profile revision - only
   events that have never been scored against the current profile are sent.
-  Which model does the rating is a swappable provider - Claude, Gemini, or
-  GitHub Models' free tier - see PROVIDERS.
+  Which model does the rating is a swappable provider - Claude or Gemini -
+  see PROVIDERS.
 
 Keeping both matters: the heuristic is the floor when there's no key, no
 network, or a rate limit, and it's what the LLM's output gets sanity-checked
@@ -32,11 +31,9 @@ from pathlib import Path
 DEFAULT_PROFILE = Path(__file__).parent.parent / "profile.md"
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
-GITHUB_MODELS_URL = "https://models.github.ai/inference/chat/completions"
-GITHUB_MODEL = "openai/gpt-4o-mini"
+ANTHROPIC_MODEL = "claude-sonnet-5"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 
 # Words that mark an event as a civic/large-scale occasion rather than a
 # routine listing. Deliberately about the KIND of event, not its quality.
@@ -290,20 +287,6 @@ def _call_anthropic(prompt: str, model: str, api_key: str, timeout: int) -> str:
     )
 
 
-def _call_github_models(prompt: str, model: str, token: str, timeout: int) -> str:
-    data = _post_json(
-        GITHUB_MODELS_URL,
-        {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
-        {
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0,
-        },
-        timeout,
-    )
-    return data["choices"][0]["message"]["content"]
-
-
 def _call_gemini(prompt: str, model: str, api_key: str, timeout: int) -> str:
     # Gemini takes the key as a query parameter rather than a header.
     data = _post_json(
@@ -311,7 +294,11 @@ def _call_gemini(prompt: str, model: str, api_key: str, timeout: int) -> str:
         {},
         {
             "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0},
+            # No temperature override: Google warns that going below the
+            # default 1.0 on Gemini 3 models can cause looping. Thinking is
+            # kept low - scoring against a profile doesn't need deep
+            # reasoning, and thinking tokens are billed as output.
+            "generationConfig": {"thinkingConfig": {"thinkingLevel": "low"}},
         },
         timeout,
     )
@@ -329,7 +316,6 @@ def _call_gemini(prompt: str, model: str, api_key: str, timeout: int) -> str:
 PROVIDERS = {
     "anthropic": ("ANTHROPIC_API_KEY", ANTHROPIC_MODEL, _call_anthropic),
     "gemini": ("GEMINI_API_KEY", GEMINI_MODEL, _call_gemini),
-    "github-models": ("GITHUB_TOKEN", GITHUB_MODEL, _call_github_models),
 }
 
 

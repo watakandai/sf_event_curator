@@ -14,7 +14,7 @@ read-only static export for GitHub Pages.
   of - stored as recurrence rules, not dates, so the list doesn't rot
 - **Ranking**: a free offline heuristic always runs; optionally an LLM scores
   every event against `profile.md` - your background and taste in plain
-  English. Pluggable provider: Claude, Gemini, or GitHub Models' free tier
+  English. Pluggable provider: Claude or Gemini
 - **List and calendar views**, sortable by best match or by date, paginated
   5 per page, with a "Top 5 of the week" section above the list
 - **A persistent map beside the results**, Yelp-style: it follows the current
@@ -125,15 +125,17 @@ go?* It reads `profile.md` - plain English, no schema - and scores each event
 
 ```bash
 cp profile.example.md profile.md   # then edit it; the default is a guess
-export GEMINI_API_KEY=...          # or ANTHROPIC_API_KEY, or GITHUB_TOKEN
+export GEMINI_API_KEY=...          # or ANTHROPIC_API_KEY
 python3 -m sf_event_curator.cli rank --llm --provider gemini
 ```
 
 | Provider | Env var | Default model | Notes |
 |---|---|---|---|
-| `gemini` | `GEMINI_API_KEY` | `gemini-2.5-flash` | Cheapest paid option |
-| `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5-20251001` | |
-| `github-models` | `GITHUB_TOKEN` | `openai/gpt-4o-mini` | Free tier, rate-limited |
+| `gemini` | `GEMINI_API_KEY` | `gemini-3.6-flash` | Cheapest option |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-5` | `--model claude-haiku-4-5-20251001` is cheaper |
+
+GitHub Models used to be a third, free option; GitHub retired the service on
+July 30, 2026, so it was removed.
 
 Adding a provider is one function plus one line in `PROVIDERS` (`rank.py`).
 
@@ -244,7 +246,7 @@ Setup: enable Pages (source: `main` branch, `/docs` folder) and give Actions
 can commit the export.
 
 To turn on LLM ranking in CI, set the repo variable `RANKER_PROVIDER` to
-`gemini`, `anthropic` or `github-models` (Settings → Variables) and add the
+`gemini` or `anthropic` (Settings → Variables) and add the
 matching secret. Left unset, the LLM step is skipped and the site ships
 heuristic scores only, so a fork with no keys still works. `RANKER_LIMIT`
 caps how many events get sent per run.

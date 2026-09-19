@@ -25,7 +25,7 @@ on:
         description: 'LLM ranker provider (blank = use the RANKER_PROVIDER variable)'
         required: false
         type: choice
-        options: ['', 'gemini', 'anthropic', 'github-models']
+        options: ['', 'gemini', 'anthropic']
         default: ''
       rescore_all:
         description: 'Re-score every event, not just new ones'
@@ -37,7 +37,6 @@ on:
 
 permissions:
   contents: write
-  models: read          # only needed for the github-models provider
 
 jobs:
   fetch-and-export:
@@ -72,8 +71,8 @@ jobs:
             --limit ${{ vars.GEOCODE_LIMIT || 80 }}
 
       # Which provider to use is explicit: set the RANKER_PROVIDER repo
-      # variable (Settings -> Variables) to gemini, anthropic, or
-      # github-models, and add the matching secret. Left unset, the LLM step
+      # variable (Settings -> Variables) to gemini or anthropic, and add
+      # the matching secret. Left unset, the LLM step
       # is skipped and the site ships heuristic scores only - so a fork with
       # no keys still works.
       - name: Resolve ranker provider
@@ -86,7 +85,6 @@ jobs:
           case "$REQUESTED" in
             gemini)        [ "$HAS_GEMINI" = true ] || { echo "::warning::RANKER_PROVIDER=gemini but GEMINI_API_KEY is not set; skipping LLM rank"; echo "provider=" >> "$GITHUB_OUTPUT"; exit 0; } ;;
             anthropic)     [ "$HAS_ANTHROPIC" = true ] || { echo "::warning::RANKER_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set; skipping LLM rank"; echo "provider=" >> "$GITHUB_OUTPUT"; exit 0; } ;;
-            github-models) ;;
             '')            echo "RANKER_PROVIDER not set - shipping heuristic scores only." ;;
             *)             echo "::warning::unknown RANKER_PROVIDER '$REQUESTED'; skipping LLM rank"; echo "provider=" >> "$GITHUB_OUTPUT"; exit 0 ;;
           esac
@@ -104,7 +102,6 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           python -m sf_event_curator.cli --db /tmp/events.db rank --llm \
             --provider '${{ steps.ranker.outputs.provider }}' \
