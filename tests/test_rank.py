@@ -1,4 +1,5 @@
 from __future__ import annotations
+import io
 import json
 
 import pytest
@@ -272,3 +273,57 @@ def test_editing_notes_are_not_sent_to_the_model(tmp_path):
 def test_shipped_profile_has_no_leftover_comment_markers():
     loaded = rank.load_profile()
     assert "<!--" not in loaded and "-->" not in loaded
+
+
+def test_http_errors_carry_the_provider_message(monkeypatch):
+    """A bare status code can't tell you if the key, model or payload is wrong."""
+    import urllib.error
+
+    body = b'{"error":{"code":400,"message":"API key not valid","status":"INVALID_ARGUMENT"}}'
+
+    def boom(req, timeout=None):
+        raise urllib.error.HTTPError(
+            req.full_url, 400, "Bad Request", {}, io.BytesIO(body)
+        )
+
+    monkeypatch.setattr(rank.urllib.request, "urlopen", boom)
+    with pytest.raises(rank.ProviderError, match="API key not valid"):
+        rank._post_json("https://example.test/v1", {}, {"a": 1}, 30)
+
+
+def test_a_key_in_the_url_is_never_echoed_into_the_error(monkeypatch):
+    import urllib.error
+
+    body = b'{"error":{"message":"bad request for key=SUPERSECRET"}}'
+
+    def boom(req, timeout=None):
+        raise urllib.error.HTTPError(
+            req.full_url, 400, "Bad Request", {}, io.BytesIO(body)
+        )
+
+    monkeypatch.setattr(rank.urllib.request, "urlopen", boom)
+    with pytest.raises(rank.ProviderError) as exc:
+        rank._post_json("https://example.test/v1?key=SUPERSECRET", {}, {}, 30)
+    assert "SUPERSECRET" not in str(exc.value)
+
+
+def test_a_failed_batch_reports_the_reason_and_spares_the_others(monkeypatch):
+    """Per-batch isolation must survive the richer error type."""
+    calls = {"n": 0}
+
+    def flaky(prompt, model, key, timeout):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise rank.ProviderError("HTTP 400: quota exhausted")
+        return json.dumps([{"i": 1, "score": 50, "reason": "ok"}])
+
+    monkeypatch.setitem(rank.PROVIDERS, "stub", ("STUB_KEY", "m", flaky))
+    monkeypatch.setenv("STUB_KEY", "x")
+    notes: list[str] = []
+    rows = [{"id": 1, "title": "A"}, {"id": 2, "title": "B"}]
+
+    out = rank.llm_scores(rows, "profile", provider="stub", batch_size=1,
+                          on_progress=lambda o, s, note: notes.append(note))
+
+    assert "quota exhausted" in notes[0]
+    assert set(out) == {2}

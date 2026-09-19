@@ -238,6 +238,19 @@ EVENTS
 {events}"""
 
 
+class ProviderError(ValueError):
+    """An API call failed and the provider said why.
+
+    Subclasses ValueError so llm_scores' existing per-batch handling catches
+    it: one bad batch is reported and skipped, not fatal.
+    """
+
+
+def _redact(text: str) -> str:
+    """Never let an API key reach a log. Gemini puts its key in the URL."""
+    return re.sub(r"(key=)[^&\s\"']+", r"\1***", text)
+
+
 def _post_json(url: str, headers: dict, payload: dict, timeout: int) -> dict:
     req = urllib.request.Request(
         url,
@@ -245,8 +258,19 @@ def _post_json(url: str, headers: dict, payload: dict, timeout: int) -> dict:
         headers={"Content-Type": "application/json", **headers},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as exc:
+        # The status alone ("400 Bad Request") is useless for working out
+        # whether the key, the model or the payload is wrong - the body says
+        # which, so carry it into the message.
+        try:
+            body = exc.read().decode("utf-8", "replace").strip()
+        except Exception:  # pragma: no cover - body already consumed
+            body = ""
+        detail = _redact(body)[:400] or exc.reason
+        raise ProviderError(f"HTTP {exc.code}: {detail}") from None
 
 
 def _call_anthropic(prompt: str, model: str, api_key: str, timeout: int) -> str:
