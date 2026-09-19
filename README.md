@@ -17,6 +17,10 @@ read-only static export for GitHub Pages.
   English. Pluggable provider: Claude, Gemini, or GitHub Models' free tier
 - **List and calendar views**, sortable by best match or by date, paginated
   5 per page, with a "Top 5 of the week" section above the list
+- **A persistent map beside the results**, Yelp-style: it follows the current
+  page in list view and the selected day in calendar view
+- **Music hidden by default** (it's about two thirds of the corpus), except
+  for marquee festivals - see Filtering
 - **Event artwork, times and mapped locations**: cover images where a source
   publishes them, start/end times, addresses linked to Google Maps, and a
   per-day map view in the calendar (Leaflet + OpenStreetMap)
@@ -25,7 +29,7 @@ read-only static export for GitHub Pages.
 - Web dashboard: browse, filter (free-only, category), and manually
   add/edit/delete events (e.g. "Ocean Beach bonfire, Friday, bring firewood")
 - Static JSON export for a read-only deployment (GitHub Pages)
-- 197 tests, no network required to run them
+- 202 tests, no network required to run them
 
 ## Quickstart
 
@@ -80,6 +84,27 @@ longer serves, so the UI drops an image that fails to load). Roughly a
 quarter of events have artwork. No source currently provides more than one
 image per event, so the carousel controls are present but dormant - see the
 note in Roadmap.
+
+## Filtering music
+
+19hz is an electronic-music listing end to end, and DoTheBay skews the same
+way, so music is roughly two thirds of everything fetched. The "Hide music"
+toggle is on by default and takes ~1,150 events down to ~375.
+
+It's a filter, not a dropped source: music events are still fetched, ranked
+and available with one click, and they still feed the ranker's cross-source
+signal.
+
+Marquee festivals are exempt, because Outside Lands or Portola isn't "a
+music event you'd skip" so much as a thing that happens to the city. The bar
+is `notability >= 70`, a prior only `data/annual_events.json` sets - so the
+guest list is editable as data rather than code. Today that means Outside
+Lands, Hardly Strictly, Portola and Stern Grove get through; a club night or
+a mid-size touring show doesn't.
+
+DoTheBay categories come from each listing card's own
+`ds-event-category-*` class, which is what makes filtering by kind of event
+possible for that source at all.
 
 ## Ranking
 
