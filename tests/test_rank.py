@@ -253,3 +253,22 @@ def test_agreement_scales_the_bonus_but_is_capped():
     ])[1][0]
     assert three > one
     assert three - one <= 20 + 1  # capped contribution
+
+
+def test_editing_notes_are_not_sent_to_the_model(tmp_path):
+    """profile.md is a prompt: guidance for the reader must not become facts."""
+    p = tmp_path / "profile.md"
+    p.write_text(
+        "# Me\n\n"
+        "<!--\nTO FILL IN: what you like.\nThis repo is public.\n-->\n\n"
+        "- I like art festivals.\n"
+    )
+    loaded = rank.load_profile(p)
+    assert "TO FILL IN" not in loaded
+    assert "public" not in loaded
+    assert "I like art festivals." in loaded
+
+
+def test_shipped_profile_has_no_leftover_comment_markers():
+    loaded = rank.load_profile()
+    assert "<!--" not in loaded and "-->" not in loaded

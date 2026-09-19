@@ -71,9 +71,6 @@ jobs:
           python -m sf_event_curator.cli --db /tmp/events.db geocode \
             --limit ${{ vars.GEOCODE_LIMIT || 80 }}
 
-      - name: Rank (heuristic, always runs)
-        run: python -m sf_event_curator.cli --db /tmp/events.db rank
-
       # Which provider to use is explicit: set the RANKER_PROVIDER repo
       # variable (Settings -> Variables) to gemini, anthropic, or
       # github-models, and add the matching secret. Left unset, the LLM step
@@ -94,6 +91,13 @@ jobs:
             *)             echo "::warning::unknown RANKER_PROVIDER '$REQUESTED'; skipping LLM rank"; echo "provider=" >> "$GITHUB_OUTPUT"; exit 0 ;;
           esac
           echo "provider=$REQUESTED" >> "$GITHUB_OUTPUT"
+
+      # Exactly one of the next two steps runs. `rank --llm` does the
+      # heuristic pass itself before calling the provider, so running both
+      # would only compute the same scores twice.
+      - name: Rank (heuristic only)
+        if: steps.ranker.outputs.provider == ''
+        run: python -m sf_event_curator.cli --db /tmp/events.db rank
 
       - name: Rank against profile.md with an LLM
         if: steps.ranker.outputs.provider != ''

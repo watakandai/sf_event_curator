@@ -8,7 +8,8 @@ from pathlib import Path
 from . import geocode as geocoding
 from . import rank as ranking
 from .db import (
-    init_db, upsert_events, query_events, row_to_dict, set_scores, unscored_events,
+    init_db, upsert_events, query_events, row_to_dict, set_scores,
+    set_heuristic_scores, unscored_events,
     get_geocache, geocache_misses, put_geocache, set_coordinates,
     clear_coordinates,
 )
@@ -195,8 +196,10 @@ def _cmd_rank(args) -> None:
         return
 
     scores = ranking.heuristic_scores(rows)
-    set_scores(args.db, scores, scored_by="heuristic", profile_hash="")
-    print(f"heuristic: scored {len(scores)} events")
+    written = set_heuristic_scores(args.db, scores)
+    kept = len(scores) - written
+    note = f" ({kept} left to the LLM)" if kept else ""
+    print(f"heuristic: scored {written} events{note}")
 
     if not args.llm:
         print("(pass --llm to also rank against profile.md)")

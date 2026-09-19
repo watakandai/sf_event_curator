@@ -176,7 +176,18 @@ def load_profile(path: Path | str = DEFAULT_PROFILE) -> str:
             f"no profile at {p}. Copy profile.example.md to profile.md and edit it - "
             "the LLM ranker needs to know who it's ranking for."
         )
-    return p.read_text().strip()
+    return strip_comments(p.read_text())
+
+
+def strip_comments(text: str) -> str:
+    """Drop HTML comments so editing notes never reach the model.
+
+    profile.md is a prompt, not just documentation: every word in it is sent
+    to the ranker. Guidance for the human reader ("edit this", "here's what
+    to include") would otherwise be read as facts about the person.
+    """
+    without = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    return re.sub(r"\n{3,}", "\n\n", without).strip()
 
 
 def profile_hash(profile: str, model: str) -> str:

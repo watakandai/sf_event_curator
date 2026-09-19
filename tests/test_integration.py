@@ -1,5 +1,7 @@
 from __future__ import annotations
 import io
+import json
+import re
 import sys
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -304,3 +306,84 @@ def test_cli_rank_on_empty_db_is_graceful(tmp_path):
     db_path = tmp_path / "events.db"
     output = run_cli(["--db", str(db_path), "rank"])
     assert "no events to rank" in output
+
+
+@pytest.fixture
+def stub_provider(monkeypatch):
+    """A provider that records every event it is asked to score.
+
+    Returns the list of batches sent, so a test can assert what the weekly
+    run would actually have paid for.
+    """
+    from sf_event_curator import rank as ranking
+
+    sent: list[list[str]] = []
+
+    def fake_call(prompt: str, model: str, key: str, timeout: int) -> str:
+        batch = re.findall(r"^\s*(\d+)\.\s", prompt, re.MULTILINE)
+        sent.append(batch)
+        return json.dumps(
+            [{"i": int(i), "score": 90, "reason": "stub"} for i in batch]
+        )
+
+    monkeypatch.setitem(ranking.PROVIDERS, "stub", ("STUB_KEY", "stub-model", fake_call))
+    monkeypatch.setenv("STUB_KEY", "present")
+    return sent
+
+
+def test_llm_rescores_only_events_it_has_not_seen(tmp_path, fake_network,
+                                                  only_fixture_fetchers, stub_provider):
+    """The weekly run must not re-pay for events already scored.
+
+    Regression test: the heuristic pass used to overwrite every row's
+    profile_hash, so the LLM re-scored the entire database every week.
+    """
+    db_path = tmp_path / "events.db"
+    profile = tmp_path / "profile.md"
+    profile.write_text("I like free outdoor festivals.\n")
+    argv = ["--db", str(db_path), "rank", "--llm",
+            "--provider", "stub", "--profile", str(profile)]
+
+    run_cli(["--db", str(db_path), "fetch"])
+    first = run_cli(argv)
+    assert "llm: scored 7/7" in first
+
+    second = run_cli(argv)
+    assert "nothing to do" in second, second
+    assert sum(len(b) for b in stub_provider) == 7, "second run sent events again"
+
+
+def test_editing_the_profile_re_ranks_everything(tmp_path, fake_network,
+                                                 only_fixture_fetchers, stub_provider):
+    """A changed profile means the old scores no longer reflect the user."""
+    db_path = tmp_path / "events.db"
+    profile = tmp_path / "profile.md"
+    profile.write_text("I like free outdoor festivals.\n")
+    argv = ["--db", str(db_path), "rank", "--llm",
+            "--provider", "stub", "--profile", str(profile)]
+
+    run_cli(["--db", str(db_path), "fetch"])
+    run_cli(argv)
+
+    profile.write_text("Actually I only want museum lectures.\n")
+    again = run_cli(argv)
+    assert "llm: scored 7/7" in again
+
+
+def test_heuristic_pass_leaves_llm_scores_alone(tmp_path, fake_network,
+                                                only_fixture_fetchers, stub_provider):
+    """`rank` (no --llm) must not blank the provenance the cache depends on."""
+    db_path = tmp_path / "events.db"
+    profile = tmp_path / "profile.md"
+    profile.write_text("I like free outdoor festivals.\n")
+
+    run_cli(["--db", str(db_path), "fetch"])
+    run_cli(["--db", str(db_path), "rank", "--llm",
+             "--provider", "stub", "--profile", str(profile)])
+
+    output = run_cli(["--db", str(db_path), "rank"])
+    assert "7 left to the LLM" in output, output
+
+    rows = query_events(db_path)
+    assert {r["scored_by"] for r in rows} == {"stub:stub-model"}
+    assert all(r["score"] == 90 for r in rows)

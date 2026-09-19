@@ -240,6 +240,31 @@ def set_scores(db_path: str | Path, scores: dict[int, tuple[float, str]],
     return len(scores)
 
 
+def set_heuristic_scores(db_path: str | Path, scores: dict[int, tuple[float, str]]) -> int:
+    """Write heuristic scores, but never over an LLM's verdict.
+
+    The heuristic runs on every event on every run, while the LLM only runs
+    on events it has not seen. Letting the heuristic overwrite rows the LLM
+    has already scored would blank their profile_hash and make every event
+    look unscored again next week - so rows carrying an LLM's provenance are
+    left alone, and keep the hash that lets `unscored_events` skip them.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    written = 0
+    with connect(db_path) as conn:
+        for event_id, (score, reason) in scores.items():
+            cur = conn.execute(
+                """UPDATE events
+                      SET score = ?, score_reason = ?, scored_by = 'heuristic',
+                          scored_at = ?, profile_hash = ''
+                    WHERE id = ?
+                      AND (scored_by IS NULL OR scored_by = 'heuristic')""",
+                (float(score), reason, now, event_id),
+            )
+            written += cur.rowcount
+    return written
+
+
 def unscored_events(db_path: str | Path, profile_hash: str,
                     scored_by: str | None = None) -> list[sqlite3.Row]:
     """Rows that still need scoring for this profile.
