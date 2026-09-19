@@ -13,19 +13,22 @@ read-only static export for GitHub Pages.
   visitor calendars for day trips
 - **In season**: whale watching, elephant seals, monarchs, pumpkin patches,
   u-pick fruit, the grape crush, urchin diving, mushrooms, crab season and
-  more within ~3 hours of SF, shown in their own strip for the month on the
-  calendar (a season isn't a one-day event, so it stays off the grid)
+  more within ~3 hours of SF, drawn as colored bars running across the
+  calendar weeks (Google Calendar style) and described in a strip under the
+  list; click a bar for its card. Seasons stay out of the ranked list, where a
+  months-long season would crowd out real events
 - **Curated annual events** so the big Bay Area dates (Outside Lands, Pride,
   Folsom, Mill Valley Fall Arts) are on your radar months ahead, not the week
   of - stored as recurrence rules, not dates, so the list doesn't rot
 - **Ranking**: a free offline heuristic always runs; optionally an LLM scores
   every event against `profile.md` - your background and taste in plain
   English. Pluggable provider: Claude or Gemini
-- **Calendar home page**: a "Top 5 this month" section (today through the
-  same date next month) above the month grid, and the selected day's events
-  below it, best match first, 5 per page for up to 4 pages
+- **Calendar home page**: click a day and the list under the grid ranks
+  that **Day**, the **Week**, or the **Month** from it (today through the
+  same date next month by default), best match first, 5 per page for up to
+  4 pages. The range is highlighted on the grid and the choice is remembered
 - **A persistent map beside the results**, Yelp-style: it follows the top
-  picks and the selected day's page, and selection is two-way - click a card
+  current page of the list, and selection is two-way - click a card
   to spotlight its pin, click a pin to highlight and scroll to its card
 - **Filter by kind**: toggle chips for In Season, Festivals, Arts & Film, Community &
   Food, Outdoors & Sports, Parks & Rec, Comedy & Shows and Music & Nightlife.

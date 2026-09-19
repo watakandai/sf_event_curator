@@ -39,7 +39,28 @@
   .empty { color: var(--muted); font-size: 14px; padding: 2rem 0; text-align: center; }
   .calendar-nav { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 12px; }
   .calendar-nav h2 { margin: 0; font-size: 16px; min-width: 170px; text-align: center; }
-  .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin-bottom: 1.25rem; }
+  /* Each week row is its own 7-column grid so season bars can span columns;
+     rows are: day number, one per season lane, then the event chips. */
+  .calendar-grid { margin-bottom: 1.25rem; --cal-num-h: 20px; --lane-h: 18px; --chips-h: 42px; }
+  .cal-head, .cal-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); column-gap: 4px; }
+  .cal-week { margin-bottom: 4px; }
+  .cal-day-num, .cal-chips { pointer-events: none; font-size: 11px; padding: 3px 5px 0; min-width: 0; }
+  .cal-chips { padding: 2px 4px 4px; }
+  .cal-day.in-range { background: #fff8f6; border-color: #f0c9c1; }
+  .season-bar { margin: 1px 0; font-size: 11px; line-height: 16px; height: 16px; padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; min-width: 0; }
+  .season-bar.starts { border-top-left-radius: 8px; border-bottom-left-radius: 8px; margin-left: 3px; }
+  .season-bar.ends { border-top-right-radius: 8px; border-bottom-right-radius: 8px; margin-right: 3px; }
+  .season-bar:hover { filter: brightness(.95); }
+  .range-list { margin-bottom: 1.75rem; }
+  .range-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .range-head h3 { margin: 0; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .scope-tabs { display: inline-flex; }
+  .scope-tab { border-radius: 0; padding: 5px 14px; margin-left: -1px; }
+  .scope-tab:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+  .scope-tab:last-child { border-radius: 0 6px 6px 0; }
+  .scope-tab[aria-pressed="true"] { background: #fff3f0; border-color: var(--accent); color: var(--accent); position: relative; z-index: 1; }
+  .season { border-left-width: 5px !important; transition: box-shadow .2s ease; }
+  .season.flash { box-shadow: 0 0 0 3px rgba(192,57,43,.35); }
   .cal-dow { font-size: 11px; color: var(--muted); text-align: center; padding: 4px 0; text-transform: uppercase; }
   .cal-day { min-height: 74px; border: 1px solid var(--border); border-radius: 6px; padding: 4px; font-size: 11px; background: var(--card); cursor: pointer; }
   .cal-blank { min-height: 74px; }
@@ -49,11 +70,13 @@
   .cal-event-chip { background: #eee; border-radius: 3px; padding: 1px 4px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cal-event-chip.free { background: #e5f6ea; }
   .cal-more { font-size: 10px; color: var(--muted); }
-  .day-detail h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 8px; }
   .undated-note { font-size: 12px; color: var(--muted); margin-bottom: 1rem; }
   .cal-count { display: none; }
   @media (max-width: 640px) {
     .cal-day, .cal-blank { min-height: 56px; }
+    /* Bars shrink to coloured lines; tap one for its card. */
+    .calendar-grid { --lane-h: 7px; --chips-h: 18px; }
+    .season-bar { font-size: 0; height: 5px; line-height: 5px; padding: 0; }
     /* Too narrow for titles: show just a count per day, tap for the detail. */
     .cal-event-chip, .cal-more { display: none; }
     .cal-count { display: block; font-size: 10px; color: var(--muted); }
@@ -177,7 +200,7 @@
 <script>
 let allEvents = [];
 let calYear, calMonth;   // month the calendar grid is showing
-let selectedDay = null;  // 'YYYY-MM-DD' for the day list under the grid
+let selectedDay = null;  // 'YYYY-MM-DD' the list under the grid runs from
 
 // --- kinds: the filter ------------------------------------------------------
 // Each source tags events its own way (Funcheap "Fairs & Festivals", DoTheBay
@@ -324,7 +347,7 @@ function resetPaging() {
 function goToPage(n) {
   currentPage = n;
   render();
-  const detail = document.querySelector('.day-detail');
+  const detail = document.querySelector('.range-list');
   if (detail) detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -361,15 +384,28 @@ function pagerHtml(total) {
 
 // --- in season --------------------------------------------------------------
 // Seasons (whale watching, pumpkin patches, the crush) are windows you can go
-// any day inside, often months long. On the grid they'd sit on their first
-// day only, and in the top 5 they'd crowd out real events for months - so
-// they get their own strip, following the month the grid is showing.
+// any day inside, often months long. They're drawn as bars across the grid,
+// Google Calendar style, and described in a strip under the list - never in
+// the ranked list itself, where a months-long season would crowd out real
+// events for months.
 const SEASON_SOURCE = 'seasonal_bay_area';
 const SEASONS_SHOWN = 6;
+// Lanes of bars per week row. Past this the grid gets taller than it is
+// useful; the rest are still in the strip below, and the strip says so.
+const MAX_SEASON_LANES = 3;
+const SEASON_COLORS = [
+  ['#d7ecff', '#0b4a7a'], ['#dcf3df', '#1d5e2a'], ['#ffe6cc', '#8a4b08'],
+  ['#efe0ff', '#5b2a86'], ['#ffdfe4', '#8a1c2b'], ['#d9f2f2', '#135e5e'],
+  ['#fff3bf', '#6b5500'], ['#e4e7ff', '#2f3a8a'],
+];
 let seasonsExpanded = false;
 
 function isSeason(e) {
   return e.source === SEASON_SOURCE;
+}
+
+function seasonRange(e) {
+  return [e.start_ts.slice(0, 10), (e.end_ts || e.start_ts).slice(0, 10)];
 }
 
 function seasonsIn(events, year, month) {
@@ -377,8 +413,40 @@ function seasonsIn(events, year, month) {
   const until = dateKey(new Date(year, month + 1, 0));
   return events
     .filter(e => isSeason(e) && e.start_ts)
-    .filter(e => e.start_ts.slice(0, 10) <= until && (e.end_ts || e.start_ts).slice(0, 10) >= from)
+    .filter(e => { const [s, end] = seasonRange(e); return s <= until && end >= from; })
     .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+}
+
+function seasonColor(e) {
+  // Keyed by the title, not the row id, so a season keeps its colour from
+  // one year's window to the next.
+  let h = 0;
+  for (const ch of e.title) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return SEASON_COLORS[h % SEASON_COLORS.length];
+}
+
+// Best-scored seasons claim lanes first; a later season can share a lane
+// with one it doesn't overlap this month.
+function assignLanes(seasons) {
+  const lanes = [];
+  const placed = [];
+  for (const e of seasons) {
+    const [s, end] = seasonRange(e);
+    const lane = lanes.findIndex(taken => taken.every(([ts, te]) => end < ts || s > te));
+    if (lane >= 0) { lanes[lane].push([s, end]); placed.push({ e, lane }); }
+    else if (lanes.length < MAX_SEASON_LANES) { lanes.push([[s, end]]); placed.push({ e, lane: lanes.length - 1 }); }
+  }
+  return { placed, laneCount: lanes.length };
+}
+
+function showSeason(id) {
+  seasonsExpanded = true;
+  render();
+  const card = document.querySelector(`.season[data-season-id="${id}"]`);
+  if (!card) return;
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.classList.add('flash');
+  setTimeout(() => card.classList.remove('flash'), 1600);
 }
 
 function toggleSeasons() {
@@ -386,23 +454,27 @@ function toggleSeasons() {
   render();
 }
 
-function seasonsHtml(seasons) {
+function seasonsHtml(seasons, onGrid) {
   if (!seasons.length) return '';
   const month = new Date(calYear, calMonth, 1).toLocaleString('en-US', { month: 'long' });
   const shown = seasonsExpanded ? seasons : seasons.slice(0, SEASONS_SHOWN);
   const more = seasons.length > SEASONS_SHOWN
     ? `<button class="season-more" onclick="toggleSeasons()">${seasonsExpanded ? 'Show fewer' : `Show all ${seasons.length}`}</button>`
     : '';
+  const offGrid = seasons.length - onGrid;
+  const note = offGrid > 0
+    ? `<div class="top-sub">The calendar draws the top ${onGrid}; ${offGrid} more ${offGrid === 1 ? 'is' : 'are'} listed here.</div>`
+    : '';
   return `<div class="seasons">
     <h2>In season in ${month}</h2>
+    ${note}
     <div class="season-list">${shown.map(seasonHtml).join('')}</div>
     ${more}
   </div>`;
 }
 
 function seasonHtml(e) {
-  const range = [e.start_ts, e.end_ts || e.start_ts]
-    .map(ts => shortDate(ts.slice(0, 10))).join(' \u2013 ');
+  const range = seasonRange(e).map(shortDate).join(' – ');
   const where = e.address || e.venue || '';
   const title = e.url
     ? `<a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(e.title)}</a>`
@@ -410,47 +482,98 @@ function seasonHtml(e) {
   const score = e.score != null
     ? `<span class="badge score" title="${escapeHtml(e.score_reason || '')}">${Math.round(e.score)}</span>`
     : '';
-  return `<div class="season">
+  const [bg] = seasonColor(e);
+  return `<div class="season" data-season-id="${e.id}" style="border-left-color:${bg}">
     <div class="season-title">${score}${title}</div>
     <div class="season-when">${e.date_approx ? 'Typically ' : ''}${range}${where ? ' &middot; ' + escapeHtml(where) : ''}</div>
     <div class="season-desc">${escapeHtml(e.description || '')}</div>
   </div>`;
 }
 
-// --- top 5 of the coming month ---------------------------------------------
-// "The month" runs from today to the same date next month, not the calendar
-// month: on the 28th, "September" would have almost nothing left in it. It
-// also ignores which month the grid is showing, so paging the calendar to
-// March doesn't change what's coming up.
-function upcomingWindow() {
-  const now = new Date();
-  const until = new Date(now.getFullYear(), now.getMonth() + 1, now.getDate());
-  return { from: dateKey(now), until: dateKey(until) };
+// --- the ranked list: a day, a week or a month from the selected day -------
+// One list under the calendar, not a "top of the month" plus a day list.
+// Every scope runs forward from the day you click, so "Month" on the 28th
+// still means a month of things, not the three days left in it.
+const SCOPES = [
+  { id: 'day', label: 'Day' },
+  { id: 'week', label: 'Week' },
+  { id: 'month', label: 'Month' },
+];
+const SCOPE_STORE = 'sfec.scope.v1';
+let scope = loadScope();
+
+function loadScope() {
+  try {
+    const saved = localStorage.getItem(SCOPE_STORE);
+    if (SCOPES.some(s => s.id === saved)) return saved;
+  } catch (e) { /* private window or blocked storage */ }
+  return 'month';
 }
 
-function topPicks(events) {
-  const { from, until } = upcomingWindow();
-  // An event that started before today but is still running (a multi-day
-  // festival) counts: it's something you can still go to.
-  return events
-    .filter(e => e.start_ts && e.score != null)
-    .filter(e => {
-      const start = e.start_ts.slice(0, 10);
-      const end = (e.end_ts || e.start_ts).slice(0, 10);
-      return start < until && end >= from;
-    })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+function setScope(id) {
+  scope = id;
+  try { localStorage.setItem(SCOPE_STORE, id); } catch (e) { /* not critical */ }
+  resetPaging();
+  render();
 }
 
-function topPicksHtml(picks) {
-  if (!picks.length) return '';
-  const { from, until } = upcomingWindow();
-  return `<div class="top-week">
-    <h2>Top ${picks.length} this month</h2>
-    <div class="top-sub">Best matches for profile.md between ${shortDate(from)} and ${shortDate(until)}.</div>
-    ${picks.map((e, i) => `<div class="top-pick"><div class="top-rank">${i + 1}</div>${cardHtml(e)}</div>`).join('')}
+function addDays(key, n) {
+  const d = new Date(key + 'T00:00:00');
+  d.setDate(d.getDate() + n);
+  return dateKey(d);
+}
+
+function addMonth(key) {
+  const d = new Date(key + 'T00:00:00');
+  const last = new Date(d.getFullYear(), d.getMonth() + 2, 0).getDate();
+  return dateKey(new Date(d.getFullYear(), d.getMonth() + 1, Math.min(d.getDate(), last)));
+}
+
+// [from, until): until is exclusive.
+function scopeRange() {
+  if (!selectedDay) return null;
+  const from = selectedDay;
+  const until = scope === 'day' ? addDays(from, 1) : scope === 'week' ? addDays(from, 7) : addMonth(from);
+  return { from, until };
+}
+
+function eventsInRange(events, range) {
+  // A festival that started before the range but is still running counts:
+  // it's something you can still go to.
+  return events.filter(e => {
+    if (!e.start_ts) return false;
+    const start = e.start_ts.slice(0, 10);
+    const end = (e.end_ts || e.start_ts).slice(0, 10);
+    return start < range.until && end >= range.from;
+  });
+}
+
+function rangeLabel(range) {
+  if (scope === 'day') {
+    return new Date(range.from + 'T00:00:00')
+      .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  }
+  return `${shortDate(range.from)} – ${shortDate(addDays(range.until, -1))}`;
+}
+
+function rangeListHtml(range, all, capped, pageItems) {
+  const tabs = SCOPES.map(s =>
+    `<button class="scope-tab" aria-pressed="${s.id === scope}" onclick="setScope('${s.id}')">${s.label}</button>`
+  ).join('');
+  const head = `<div class="range-head">
+    <div class="scope-tabs" role="group" aria-label="List range">${tabs}</div>
+    <h3>${range ? `Top picks &middot; ${rangeLabel(range)}` : ''}</h3>
   </div>`;
+  if (!range) return `${head}<div class="empty">Click a day to see its events.</div>`;
+  if (!all.length) return `${head}<div class="empty">Nothing in this range matches the filters.</div>`;
+  const offset = (currentPage - 1) * PAGE_SIZE;
+  const cards = pageItems.map((e, i) =>
+    `<div class="top-pick"><div class="top-rank">${offset + i + 1}</div>${cardHtml(e)}</div>`
+  ).join('');
+  const cap = all.length > capped.length
+    ? `<div class="day-cap">Showing the top ${capped.length} of ${all.length}. Narrow the range, search, or switch kinds off to see others.</div>`
+    : '';
+  return `${head}${cards}${pagerHtml(capped.length)}${cap}`;
 }
 
 function shortDate(key) {
@@ -461,7 +584,12 @@ function changeMonth(delta) {
   calMonth += delta;
   if (calMonth < 0) { calMonth = 11; calYear--; }
   if (calMonth > 11) { calMonth = 0; calYear++; }
-  selectedDay = null;
+  // Keep a list under the grid: today if it's in this month, else the 1st.
+  const now = new Date();
+  selectedDay = now.getFullYear() === calYear && now.getMonth() === calMonth
+    ? dateKey(now)
+    : dateKey(new Date(calYear, calMonth, 1));
+  seasonsExpanded = false;
   resetPaging();
   render();
 }
@@ -488,6 +616,7 @@ function dateKey(d) {
 
 function renderCalendarView(filtered) {
   const seasons = seasonsIn(filtered, calYear, calMonth);
+  const { placed, laneCount } = assignLanes(seasons);
   filtered = filtered.filter(e => !isSeason(e));
   const byDay = {};
   for (const e of filtered) {
@@ -496,78 +625,97 @@ function renderCalendarView(filtered) {
     (byDay[key] = byDay[key] || []).push(e);
   }
 
+  const range = scopeRange();
+  const all = range ? rankedOrder(eventsInRange(filtered, range)) : [];
+  const capped = all.slice(0, PAGE_SIZE * MAX_PAGES);
+  const pageItems = pageSlice(capped);
+
   const monthName = new Date(calYear, calMonth, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
-  const firstWeekday = new Date(calYear, calMonth, 1).getDay();
-  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
-  const todayKey = dateKey(new Date());
   const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  let cells = '';
-  for (let i = 0; i < firstWeekday; i++) cells += '<div class="cal-blank"></div>';
-  for (let day = 1; day <= daysInMonth; day++) {
-    const key = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const dayEvents = byDay[key] || [];
-    const byRank = rankedOrder(dayEvents);
-    const classes = ['cal-day'];
-    if (key === todayKey) classes.push('today');
-    if (key === selectedDay) classes.push('selected');
-    const chips = byRank.slice(0, 2).map(e =>
-      `<div class="cal-event-chip${e.is_free ? ' free' : ''}">${escapeHtml(e.title)}</div>`
-    ).join('');
-    const more = dayEvents.length > 2 ? `<div class="cal-more">+${dayEvents.length - 2} more</div>` : '';
-    const count = dayEvents.length
-      ? `<div class="cal-count">${dayEvents.length} event${dayEvents.length === 1 ? '' : 's'}</div>`
-      : '';
-    cells += `<div class="${classes.join(' ')}" onclick="selectDay('${key}')">`
-      + `<div class="cal-day-num">${day}</div>${chips}${more}${count}</div>`;
-  }
-
-  const picks = topPicks(filtered);
-  const dayAll = selectedDay ? rankedOrder(byDay[selectedDay] || []) : [];
-  const dayCapped = dayAll.slice(0, PAGE_SIZE * MAX_PAGES);
-  const pageItems = pageSlice(dayCapped);
-
   document.getElementById('results').innerHTML = `
-    ${topPicksHtml(picks)}
-    ${seasonsHtml(seasons)}
     <div class="calendar-nav">
       <button onclick="changeMonth(-1)">&lsaquo; Prev</button>
       <h2>${monthName}</h2>
       <button onclick="changeMonth(1)">Next &rsaquo;</button>
       <button onclick="goToday()">Today</button>
     </div>
-    <div class="calendar-grid">
-      ${dows.map(d => `<div class="cal-dow">${d}</div>`).join('')}
-      ${cells}
+    <div class="cal-head">${dows.map(d => `<div class="cal-dow">${d}</div>`).join('')}</div>
+    ${calendarWeeksHtml(byDay, placed, laneCount, range)}
+    <div class="range-list">
+      ${rangeListHtml(range, all, capped, pageItems)}
     </div>
-    <div class="day-detail">
-      ${selectedDay ? dayDetailHtml(dayAll, dayCapped, pageItems) : '<div class="empty">Click a day to see its events.</div>'}
-    </div>
+    ${seasonsHtml(seasons, new Set(placed.map(p => p.e.id)).size)}
   `;
 
-  // The map carries everything on screen, top picks included - otherwise
-  // clicking a pick reports "no pin" even though it has one.
-  const onScreen = [];
-  const seen = new Set();
-  for (const e of pageItems.concat(picks)) {
-    if (seen.has(e.id)) continue;
-    seen.add(e.id);
-    onScreen.push(e);
-  }
-  updateSideMap(onScreen, 'Nothing shown here has a mapped location.');
+  updateSideMap(pageItems, 'Nothing shown here has a mapped location.');
   applyCardSelection();
 }
 
-function dayDetailHtml(all, capped, pageItems) {
-  const label = new Date(selectedDay + 'T00:00:00')
-    .toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-  if (!all.length) {
-    return `<h3>${label}</h3><div class="empty">No events this day match the filters.</div>`;
+// One grid per week row, so a season's bar can run across the row's
+// columns: row 1 holds the day numbers, then one row per season lane, then
+// the event chips. Day cells span every row behind them, and only they (and
+// the bars) take clicks.
+function calendarWeeksHtml(byDay, placed, laneCount, range) {
+  const firstWeekday = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const todayKey = dateKey(new Date());
+  const keyOf = day => `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  const rows = `var(--cal-num-h) repeat(${laneCount}, var(--lane-h)) minmax(var(--chips-h), auto)`;
+  const lastRow = laneCount + 2;
+
+  let html = '';
+  for (let weekStart = 1 - firstWeekday; weekStart <= daysInMonth; weekStart += 7) {
+    let items = '';
+    for (let col = 0; col < 7; col++) {
+      const day = weekStart + col;
+      const gridCol = `grid-column:${col + 1}`;
+      if (day < 1 || day > daysInMonth) {
+        items += `<div class="cal-blank" style="${gridCol};grid-row:1 / -1"></div>`;
+        continue;
+      }
+      const key = keyOf(day);
+      const dayEvents = rankedOrder(byDay[key] || []);
+      const classes = ['cal-day'];
+      if (key === todayKey) classes.push('today');
+      if (key === selectedDay) classes.push('selected');
+      else if (range && key >= range.from && key < range.until) classes.push('in-range');
+      items += `<div class="${classes.join(' ')}" style="${gridCol};grid-row:1 / -1" onclick="selectDay('${key}')"></div>`;
+      items += `<div class="cal-day-num" style="${gridCol};grid-row:1">${day}</div>`;
+      const chips = dayEvents.slice(0, 2).map(e =>
+        `<div class="cal-event-chip${e.is_free ? ' free' : ''}">${escapeHtml(e.title)}</div>`
+      ).join('');
+      const more = dayEvents.length > 2 ? `<div class="cal-more">+${dayEvents.length - 2} more</div>` : '';
+      const count = dayEvents.length
+        ? `<div class="cal-count">${dayEvents.length} event${dayEvents.length === 1 ? '' : 's'}</div>`
+        : '';
+      if (dayEvents.length) {
+        items += `<div class="cal-chips" style="${gridCol};grid-row:${lastRow}">${chips}${more}${count}</div>`;
+      }
+    }
+
+    // Clamp each season to this row's in-month days; a bar keeps square
+    // ends where it carries on into the next or previous row.
+    const rowFirst = keyOf(Math.max(weekStart, 1));
+    const rowLast = keyOf(Math.min(weekStart + 6, daysInMonth));
+    for (const { e, lane } of placed) {
+      const [s, end] = seasonRange(e);
+      if (end < rowFirst || s > rowLast) continue;
+      const segStart = s > rowFirst ? s : rowFirst;
+      const segEnd = end < rowLast ? end : rowLast;
+      const c1 = Number(segStart.slice(8)) - weekStart + 1;
+      const c2 = Number(segEnd.slice(8)) - weekStart + 1;
+      const [bg, fg] = seasonColor(e);
+      const cls = ['season-bar'];
+      if (s >= rowFirst) cls.push('starts');
+      if (end <= rowLast) cls.push('ends');
+      const tip = `${e.title} (${seasonRange(e).map(shortDate).join(' – ')})`;
+      items += `<div class="${cls.join(' ')}" style="grid-column:${c1} / ${c2 + 1};grid-row:${lane + 2};background:${bg};color:${fg}"`
+        + ` title="${escapeHtml(tip)}" onclick="showSeason(${e.id})">${escapeHtml(e.title)}</div>`;
+    }
+    html += `<div class="cal-week" style="grid-template-rows:${rows}">${items}</div>`;
   }
-  const cap = all.length > capped.length
-    ? `<div class="day-cap">Showing the top ${capped.length} of ${all.length}. Search or switch kinds off to see others.</div>`
-    : '';
-  return `<h3>${label}</h3>${pageItems.map(cardHtml).join('')}${pagerHtml(capped.length)}${cap}`;
+  return `<div class="calendar-grid">${html}</div>`;
 }
 
 function mediaHtml(e) {
