@@ -6,7 +6,7 @@ from pathlib import Path
 
 from .models import Event
 
-SCHEMA = """
+SCHEMA_TABLE = """
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source TEXT NOT NULL,
@@ -21,10 +21,40 @@ CREATE TABLE IF NOT EXISTS events (
     url TEXT,
     description TEXT,
     fetched_at TEXT NOT NULL,
+    notability INTEGER NOT NULL DEFAULT 0,
+    date_approx INTEGER NOT NULL DEFAULT 0,
+    score REAL,
+    score_reason TEXT,
+    scored_by TEXT,
+    scored_at TEXT,
+    profile_hash TEXT,
     UNIQUE(source, source_id)
 );
-CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_ts);
 """
+
+# Indexes are applied AFTER migrations, not as part of SCHEMA: idx_events_score
+# references a column that pre-ranking databases don't have yet, so creating it
+# before ALTER TABLE runs fails outright and makes an existing database
+# impossible to open.
+INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_ts);
+CREATE INDEX IF NOT EXISTS idx_events_score ON events(score);
+"""
+
+SCHEMA = SCHEMA_TABLE + INDEXES
+
+# Columns added after the first release. SQLite can't add them conditionally
+# in a script, so init_db diffs against the live table instead of requiring
+# anyone to delete and re-fetch their database.
+MIGRATIONS = {
+    "notability": "INTEGER NOT NULL DEFAULT 0",
+    "date_approx": "INTEGER NOT NULL DEFAULT 0",
+    "score": "REAL",
+    "score_reason": "TEXT",
+    "scored_by": "TEXT",
+    "scored_at": "TEXT",
+    "profile_hash": "TEXT",
+}
 
 
 @contextmanager
@@ -39,8 +69,18 @@ def connect(db_path: str | Path):
 
 
 def init_db(db_path: str | Path) -> None:
+    """Create the table if absent, bring an older one up to date, then index.
+
+    Strict ordering: the score index can't be created until the migration has
+    added the column it covers.
+    """
     with connect(db_path) as conn:
-        conn.executescript(SCHEMA)
+        conn.executescript(SCHEMA_TABLE)
+        existing = {r["name"] for r in conn.execute("PRAGMA table_info(events)")}
+        for column, decl in MIGRATIONS.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE events ADD COLUMN {column} {decl}")
+        conn.executescript(INDEXES)
 
 
 def upsert_events(db_path: str | Path, events: list[Event]) -> int:
@@ -50,19 +90,22 @@ def upsert_events(db_path: str | Path, events: list[Event]) -> int:
             conn.execute(
                 """INSERT INTO events
                    (source, source_id, title, start_ts, end_ts, venue, address,
-                    cost, categories, url, description, fetched_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                    cost, categories, url, description, fetched_at,
+                    notability, date_approx)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(source, source_id) DO UPDATE SET
                      title=excluded.title, start_ts=excluded.start_ts, end_ts=excluded.end_ts,
                      venue=excluded.venue, address=excluded.address, cost=excluded.cost,
                      categories=excluded.categories, url=excluded.url,
-                     description=excluded.description, fetched_at=excluded.fetched_at""",
+                     description=excluded.description, fetched_at=excluded.fetched_at,
+                     notability=excluded.notability, date_approx=excluded.date_approx""",
                 (
                     e.source, e.source_id, e.title,
                     e.start.isoformat() if e.start else None,
                     e.end.isoformat() if e.end else None,
                     e.venue, e.address, e.cost, ",".join(e.categories),
                     e.url, e.description, now,
+                    e.notability, int(e.date_approx),
                 ),
             )
     return len(events)
@@ -75,6 +118,7 @@ def query_events(
     start_before: datetime | None = None,
     free_only: bool = False,
     category: str | None = None,
+    order_by: str = "date",
 ) -> list[sqlite3.Row]:
     sql = "SELECT * FROM events WHERE 1=1"
     params: list = []
@@ -89,7 +133,15 @@ def query_events(
     if category:
         sql += " AND categories LIKE ?"
         params.append(f"%{category}%")
-    sql += " ORDER BY start_ts ASC"
+    if order_by == "score":
+        # Unscored events sort last rather than first, which is what a NULL
+        # would do under DESC. Date breaks ties so a scoreless run still
+        # reads chronologically.
+        sql += " ORDER BY score IS NULL, score DESC, start_ts ASC"
+    elif order_by == "date":
+        sql += " ORDER BY start_ts ASC"
+    else:
+        raise ValueError(f"unknown order_by: {order_by!r}")
     with connect(db_path) as conn:
         return conn.execute(sql, params).fetchall()
 
@@ -144,4 +196,40 @@ def row_to_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
     d["categories"] = [c for c in (d["categories"] or "").split(",") if c]
     d["is_free"] = d["cost"] == "0"
+    d["date_approx"] = bool(d.get("date_approx"))
     return d
+
+
+def set_scores(db_path: str | Path, scores: dict[int, tuple[float, str]],
+               scored_by: str, profile_hash: str) -> int:
+    """Write ranker output back onto rows, keyed by event id."""
+    now = datetime.now(timezone.utc).isoformat()
+    with connect(db_path) as conn:
+        for event_id, (score, reason) in scores.items():
+            conn.execute(
+                """UPDATE events
+                      SET score = ?, score_reason = ?, scored_by = ?,
+                          scored_at = ?, profile_hash = ?
+                    WHERE id = ?""",
+                (float(score), reason, scored_by, now, profile_hash, event_id),
+            )
+    return len(scores)
+
+
+def unscored_events(db_path: str | Path, profile_hash: str,
+                    scored_by: str | None = None) -> list[sqlite3.Row]:
+    """Rows that still need scoring for this profile.
+
+    A row counts as needing work if it has no score, or if it was scored
+    against a different profile revision, or (when scored_by is given) by a
+    different ranker - so editing profile.md re-ranks everything on the next
+    run without re-ranking on every unrelated run.
+    """
+    sql = "SELECT * FROM events WHERE score IS NULL OR profile_hash IS NOT ? "
+    params: list = [profile_hash]
+    if scored_by is not None:
+        sql += "OR scored_by IS NOT ? "
+        params.append(scored_by)
+    sql += "ORDER BY start_ts ASC"
+    with connect(db_path) as conn:
+        return conn.execute(sql, params).fetchall()
