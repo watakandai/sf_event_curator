@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SF Event Curator</title>
+<style>
+  :root { --border:#e2e2e2; --accent:#c0392b; --bg:#fafafa; --card:#fff; --text:#222; --muted:#777; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; }
+  header { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); background: var(--card); }
+  header h1 { font-size: 1.25rem; margin: 0 0 4px; }
+  header p { font-size: 13px; color: var(--muted); margin: 0; }
+  main { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1.25rem; }
+  .toolbar input[type=text] { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+  .toolbar label { font-size: 13px; display: flex; align-items: center; gap: 4px; color: var(--muted); }
+  .month-group { margin-bottom: 1.75rem; }
+  .month-group h2 { font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .event-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 10px; }
+  .event-date { font-size: 12px; color: var(--muted); text-transform: uppercase; }
+  .event-title { font-weight: 600; margin: 2px 0 4px; }
+  .event-meta { font-size: 13px; color: var(--muted); }
+  .badge { display: inline-block; font-size: 11px; background: #eee; border-radius: 4px; padding: 2px 6px; margin-top: 6px; margin-right: 4px; }
+  .badge.free { background: #e5f6ea; color: #1e7e34; }
+  .badge.dothebay { background: #e8f0fe; color: #1a56db; }
+  .event-source { margin-top: 4px; font-size: 12px; }
+  .event-source a { color: var(--accent); text-decoration: none; }
+  .event-source a:hover { text-decoration: underline; }
+  .empty { color: var(--muted); font-size: 14px; padding: 2rem 0; text-align: center; }
+  .status { font-size: 12px; color: var(--muted); margin-bottom: 1rem; }
+  .status.error { color: var(--accent); }
+  footer { max-width: 900px; margin: 0 auto; padding: 1rem 1.5rem 2rem; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>SF Event Curator</h1>
+  <p>Read-only view - updated weekly via a GitHub Actions job. Fetched from SF Funcheap and DoTheBay.</p>
+</header>
+<main>
+  <div class="status" id="status">Loading...</div>
+  <div class="toolbar">
+    <input type="text" id="searchBox" placeholder="Search title or venue..." oninput="render()">
+    <input type="text" id="categoryBox" placeholder="Category contains..." oninput="render()">
+    <label><input type="checkbox" id="freeOnly" onchange="render()"> Free only</label>
+  </div>
+  <div id="results"></div>
+</main>
+<footer>
+  This page has no way to add or edit events - it's a static export of the
+  sf_event_curator database, refreshed every Monday. To add events (like an
+  Ocean Beach bonfire) with a shared, persistent store, run the full
+  dashboard locally instead.
+</footer>
+
+<script>
+let allEvents = [];
+
+async function loadEvents() {
+  try {
+    const res = await fetch('data/events.json');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    allEvents = await res.json();
+    const generatedNote = allEvents.length
+      ? `${allEvents.length} events loaded.`
+      : 'No events found in the latest export.';
+    document.getElementById('status').textContent = generatedNote;
+  } catch (e) {
+    document.getElementById('status').textContent =
+      'Could not load event data (data/events.json missing or invalid). Has the weekly export run yet?';
+    document.getElementById('status').classList.add('error');
+  }
+  render();
+}
+
+function render() {
+  const search = document.getElementById('searchBox').value.toLowerCase();
+  const category = document.getElementById('categoryBox').value.toLowerCase();
+  const freeOnly = document.getElementById('freeOnly').checked;
+
+  const filtered = allEvents.filter(e => {
+    if (freeOnly && !e.is_free) return false;
+    if (category && !(e.categories || []).join(',').toLowerCase().includes(category)) return false;
+    if (search && !(e.title.toLowerCase().includes(search) || (e.venue || '').toLowerCase().includes(search))) return false;
+    return true;
+  });
+
+  const groups = {};
+  for (const e of filtered) {
+    const key = e.start_ts ? e.start_ts.slice(0, 7) : 'Undated';
+    (groups[key] = groups[key] || []).push(e);
+  }
+  const sortedKeys = Object.keys(groups).sort();
+  for (const k of sortedKeys) {
+    groups[k].sort((a, b) => (a.start_ts || '').localeCompare(b.start_ts || ''));
+  }
+
+  const container = document.getElementById('results');
+  if (sortedKeys.length === 0) {
+    container.innerHTML = '<div class="empty">No events match. Try clearing filters.</div>';
+    return;
+  }
+
+  container.innerHTML = sortedKeys.map(key => `
+    <div class="month-group">
+      <h2>${monthLabel(key)}</h2>
+      ${groups[key].map(cardHtml).join('')}
+    </div>
+  `).join('');
+}
+
+function monthLabel(key) {
+  if (key === 'Undated') return 'Undated';
+  const [y, m] = key.split('-');
+  const d = new Date(Number(y), Number(m) - 1, 1);
+  return d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function cardHtml(e) {
+  const when = e.start_ts ? new Date(e.start_ts).toLocaleString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+  }) : 'Date TBD';
+  const badges = (e.categories || []).slice(0, 3).map(c => `<span class="badge">${escapeHtml(c)}</span>`).join('');
+  const freeBadge = e.is_free ? '<span class="badge free">Free</span>' : '';
+  const dothebayBadge = e.source === 'dothebay' ? '<span class="badge dothebay">DoTheBay</span>' : '';
+  const sourceLink = e.url ? `<div class="event-source"><a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer">View source \u2197</a></div>` : '';
+  return `
+    <div class="event-card">
+      <div class="event-date">${when}</div>
+      <div class="event-title">${escapeHtml(e.title)}</div>
+      <div class="event-meta">${escapeHtml(e.venue || '')}</div>
+      <div>${dothebayBadge}${freeBadge}${badges}</div>
+      ${sourceLink}
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+loadEvents();
+</script>
+</body>
+</html>

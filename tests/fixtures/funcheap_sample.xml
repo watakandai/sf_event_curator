@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<rss version="2.0" xmlns:funCheap="https://sf.funcheap.com/rssfeed/">
+<channel>
+  <title>FunCheapSF.com Feed</title>
+  <link>https://sf.funcheap.com/</link>
+  <description>The latest events from sf.funcheap.com.</description>
+  <language>en-us</language>
+  <pubDate>Sun, 06 Sep 2026 00:05:15 +0000</pubDate>
+  <item>
+    <title>&#8220;South Side Beer Ride&#8221; Free Monthly Brewery Shuttle | SF</title>
+    <link>https://sf.funcheap.com/south-side-beer-ride-free-monthly-brewery-shuttle-sf-83/</link>
+    <description><![CDATA[Event listing curated for CBS 5 by Johnny Funcheap.]]></description>
+    <pubDate>Sat, 05 Sep 2026 17:14:12 +0000</pubDate>
+    <guid>https://sf.funcheap.com/south-side-beer-ride-free-monthly-brewery-shuttle-sf-83/</guid>
+    <funCheap:eventDate>Wed, 02 Dec 2026 00:00:00 +0000</funCheap:eventDate>
+    <funCheap:startTime>Wed, 02 Dec 2026 18:30:00 +0000</funCheap:startTime>
+    <funCheap:endTime>Wed, 02 Dec 2026 22:30:00 +0000</funCheap:endTime>
+    <funCheap:cost>0</funCheap:cost>
+    <funCheap:costDetails>Shuttle is Free. Beer for purchase.</funCheap:costDetails>
+    <funCheap:url>https://www.facebook.com/events/1878100878982610/?event_time_id=1878100892315942</funCheap:url>
+    <funCheap:allDay value="false"/>
+    <funCheap:venue>Speakeasy Brewery</funCheap:venue>
+    <funCheap:venueAddress></funCheap:venueAddress>
+    <funCheap:categories>*Top Pick*,Eating &amp; Drinking,San Francisco</funCheap:categories>
+    <funCheap:tags></funCheap:tags>
+  </item>
+  <item>
+    <title>North Beach First Fridays Art Crawl (SF)</title>
+    <link>https://sf.funcheap.com/north-beach-first-fridays-art-crawl-sf-141/</link>
+    <description><![CDATA[Event listing curated for CBS 5 by Johnny Funcheap.]]></description>
+    <pubDate>Sat, 05 Sep 2026 13:14:11 +0000</pubDate>
+    <guid>https://sf.funcheap.com/north-beach-first-fridays-art-crawl-sf-141/</guid>
+    <funCheap:eventDate>Fri, 04 Dec 2026 00:00:00 +0000</funCheap:eventDate>
+    <funCheap:startTime>Fri, 04 Dec 2026 17:00:00 +0000</funCheap:startTime>
+    <funCheap:endTime>Fri, 04 Dec 2026 21:00:00 +0000</funCheap:endTime>
+    <funCheap:cost>0</funCheap:cost>
+    <funCheap:costDetails></funCheap:costDetails>
+    <funCheap:url>https://www.facebook.com/northbeachfirstfridays</funCheap:url>
+    <funCheap:allDay value="false"/>
+    <funCheap:venue>North Beach</funCheap:venue>
+    <funCheap:venueAddress>North Beach, San Francisco, CA</funCheap:venueAddress>
+    <funCheap:categories>*Top Pick*,Art &amp; Museums,Block Party,In Person,San Francisco</funCheap:categories>
+    <funCheap:tags></funCheap:tags>
+  </item>
+  <item>
+    <title>&#8220;Union Square Dances&#8221; Free Outdoor Friday Night Dance Party (SF)</title>
+    <link>https://sf.funcheap.com/union-square-dances-free-outdoor-friday-night-dance-party-sf-9/</link>
+    <description><![CDATA[Event listing curated for CBS 5 by Johnny Funcheap.]]></description>
+    <pubDate>Sat, 05 Sep 2026 12:14:13 +0000</pubDate>
+    <guid>https://sf.funcheap.com/union-square-dances-free-outdoor-friday-night-dance-party-sf-9/</guid>
+    <funCheap:eventDate>Fri, 16 Oct 2026 00:00:00 +0000</funCheap:eventDate>
+    <funCheap:startTime>Fri, 16 Oct 2026 17:00:00 +0000</funCheap:startTime>
+    <funCheap:endTime>Fri, 16 Oct 2026 20:00:00 +0000</funCheap:endTime>
+    <funCheap:cost>0</funCheap:cost>
+    <funCheap:costDetails></funCheap:costDetails>
+    <funCheap:url>https://visitunionsquaresf.com/park-programs</funCheap:url>
+    <funCheap:allDay value="false"/>
+    <funCheap:venue>Union Square Park</funCheap:venue>
+    <funCheap:venueAddress>Geary and Powell, San Francisco, CA</funCheap:venueAddress>
+    <funCheap:categories>*Top Pick*,- Select One -,Community,Downtown San Francisco,Fun &amp; Games,In Person,Live Music,Outdoors</funCheap:categories>
+    <funCheap:tags></funCheap:tags>
+  </item>
+</channel>
+</rss>

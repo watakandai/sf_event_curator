@@ -1,0 +1,46 @@
+<!--
+  HAND-BUILT fixture, NOT a captured raw response.
+
+  This sandbox cannot reach dothebay.com directly (network is restricted to
+  an allowlist), and the external fetch tool available returns pre-processed
+  content rather than raw HTML - so unlike funcheap_sample.xml, this file was
+  never a real server response. It was constructed to mirror the exact
+  anchor href/text patterns DoTheBay's page was observed to produce (event
+  links as /events/YYYY/M/D/slug, venue links as /venues/slug, addresses as
+  maps.google.com links with a ?q= query param) via an external fetch of the
+  live homepage on 2026-09-06.
+
+  If DoTheBay's real markup differs from what's modeled here in ways that
+  don't show up in the visible link structure, this fixture will pass while
+  the real fetcher fails silently. Treat this as a reasoning aid, not proof
+  the scraper works in production.
+-->
+<html>
+<body>
+<div class="event-card">
+  <a href="/events/2026/9/5/brandon-flowers-tickets">Another Planet Entertainment Presents Brandon Flowers</a>
+  <a href="https://maps.google.com/?q=1807 Telegraph Ave, Oakland, CA, 94612">1807 Telegraph Ave, Oakland, CA, 94612</a>
+  <a href="/venues/fox-theater">Fox Theater</a>
+  <span>5</span>
+</div>
+<div class="event-card">
+  <a href="/events/2026/9/5/labor-day-yacht-party-8-year-anniversary-tickets">Over The Top + W San Francisco Present Labor Day Yacht Party: 8 Year Anniversary</a>
+  <a href="https://maps.google.com/?q=The Embarcadero, San Francisco, CA, 94105">The Embarcadero, San Francisco, CA, 94105</a>
+  <a href="/venues/pier-3">Pier 3</a>
+</div>
+<div class="event-card">
+  <span class="tag">Free</span>
+  <a href="/events/2026/9/5/yerba-buena-movie-night-tickets">Yerba Buena Gardens Festival + KALW Present Yerba Buena Movie Night: Black Panther</a>
+  <a href="https://maps.google.com/?q=Yerba Buena Gardens, San Francisco, CA, 94103">Yerba Buena Gardens, San Francisco, CA, 94103</a>
+  <a href="/venues/yerba-buena-gardens">Yerba Buena Gardens</a>
+</div>
+<div class="event-card no-venue-link">
+  <a href="/events/2026/9/5/the-legendary-stardust-cowboy-tickets">The Legendary Stardust Cowboy</a>
+  <span>Thee Stork Club</span>
+</div>
+<footer>
+  <a href="/venues">The Bay Area Venues</a>
+  <a href="/artists">Artists in The Bay Area</a>
+</footer>
+</body>
+</html>

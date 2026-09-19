@@ -1,0 +1,36 @@
+# systemd service for the sf_event_curator dashboard.
+#
+# Install: sudo cp deploy/sf-event-curator.service /etc/systemd/system/
+# Then:    sudo systemctl daemon-reload
+#          sudo systemctl enable --now sf-event-curator
+#
+# BEFORE installing, edit the three placeholders below:
+#   <YOUR_USER>         - your Linux username (e.g. kandai)
+#   <PROJECT_DIR>        - absolute path to this project
+#                          (e.g. /home/kandai/Documents/projects/playgrounds/sf_event_curator)
+#   <VENV_PYTHON>        - absolute path to the venv's python3, typically
+#                          <PROJECT_DIR>/.venv/bin/python3
+#
+# Binds to 127.0.0.1 only, on purpose: the dashboard has no authentication
+# (see README's "Not yet built" section), so it should not be reachable from
+# your LAN or the internet as-is. To view it from another device on your
+# home network, either (a) change --host to 0.0.0.0 below and rely on your
+# router/firewall to block outside access, or (b) put it behind something
+# that adds auth (nginx + basic auth, a Tailscale/VPN-only bind, etc.) -
+# don't just open it up unauthenticated.
+
+[Unit]
+Description=SF Event Curator dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=<YOUR_USER>
+WorkingDirectory=<PROJECT_DIR>
+Environment=SF_EVENT_CURATOR_DB=/home/<YOUR_USER>/.sf_event_curator/events.db
+ExecStart=<VENV_PYTHON> -m uvicorn sf_event_curator.web:app --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

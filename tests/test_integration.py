@@ -1,0 +1,216 @@
+from __future__ import annotations
+import io
+import sys
+from contextlib import redirect_stdout
+from pathlib import Path
+
+import pytest
+
+from sf_event_curator.db import init_db, upsert_events, query_events, count_events
+from sf_event_curator.fetchers.funcheap import FuncheapFetcher
+from sf_event_curator.fetchers.dothebay import DoTheBayFetcher
+from sf_event_curator import cli as cli_module
+
+FIXTURE = Path(__file__).parent / "fixtures" / "funcheap_sample.xml"
+DOTHEBAY_FIXTURE = Path(__file__).parent / "fixtures" / "dothebay_sample.html"
+
+
+class FakeResponse:
+    def __init__(self, data: bytes):
+        self._data = data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self):
+        return self._data
+
+
+@pytest.fixture
+def fake_network(monkeypatch):
+    """Point every fetcher's urllib calls at captured/hand-built fixtures instead
+    of the live network, so CLI-level tests stay deterministic and offline.
+
+    Both fetcher modules do `import urllib.request`, so they share the exact
+    same global module object - patching urlopen via two separate
+    `monkeypatch.setattr("module.urllib.request.urlopen", ...)` calls would
+    just overwrite the same global symbol twice, silently breaking whichever
+    fetcher was patched first. One URL-dispatching fake avoids that.
+    """
+    funcheap_bytes = FIXTURE.read_bytes()
+    dothebay_bytes = DOTHEBAY_FIXTURE.read_bytes()
+
+    def fake_urlopen(req, timeout=None):
+        url = req.full_url if hasattr(req, "full_url") else req
+        if "dothebay.com" in url:
+            return FakeResponse(dothebay_bytes)
+        return FakeResponse(funcheap_bytes)
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+
+def test_pipeline_parse_store_and_filter(tmp_path):
+    db_path = tmp_path / "events.db"
+    init_db(db_path)
+
+    events = FuncheapFetcher().parse(FIXTURE.read_bytes())
+    upsert_events(db_path, events)
+
+    assert count_events(db_path) == 3
+
+    free_events = query_events(db_path, free_only=True)
+    assert len(free_events) == 3  # all fixture events are free
+
+    outdoors = query_events(db_path, category="Outdoors")
+    assert len(outdoors) == 1
+    assert "Union Square" in outdoors[0]["title"]
+
+
+def test_pipeline_is_idempotent_on_repeated_fetch(tmp_path):
+    """Running the pipeline twice (as a scheduled job would) must not duplicate rows."""
+    db_path = tmp_path / "events.db"
+    init_db(db_path)
+    events = FuncheapFetcher().parse(FIXTURE.read_bytes())
+
+    upsert_events(db_path, events)
+    upsert_events(db_path, events)  # simulate a second scheduled run
+
+    assert count_events(db_path) == 3
+
+
+def run_cli(args: list[str]) -> str:
+    old_argv = sys.argv
+    sys.argv = ["sf-event-curator", *args]
+    buf = io.StringIO()
+    try:
+        with redirect_stdout(buf):
+            cli_module.main()
+    finally:
+        sys.argv = old_argv
+    return buf.getvalue()
+
+
+def test_cli_fetch_then_list_end_to_end(tmp_path, fake_network):
+    db_path = tmp_path / "events.db"
+
+    fetch_output = run_cli(["--db", str(db_path), "fetch"])
+    assert "funcheap_sf: 3 events fetched" in fetch_output
+    assert "dothebay: 4 events fetched" in fetch_output
+
+    list_output = run_cli(["--db", str(db_path), "list"])
+    lines = [l for l in list_output.splitlines() if l.strip()]
+    assert len(lines) == 7  # 3 funcheap + 4 dothebay
+    # soonest event (Oct) should appear before latest (Dec)
+    assert list_output.index("Union Square") < list_output.index("Beer Ride")
+
+
+def test_cli_list_on_empty_db_prints_nothing(tmp_path):
+    db_path = tmp_path / "events.db"
+    output = run_cli(["--db", str(db_path), "list"])
+    assert output.strip() == ""
+
+
+def test_cli_creates_db_file_and_parent_dirs(tmp_path):
+    db_path = tmp_path / "nested" / "dir" / "events.db"
+    run_cli(["--db", str(db_path), "list"])
+    assert db_path.exists()
+
+
+def test_cli_second_fetch_does_not_duplicate_rows(tmp_path, fake_network):
+    db_path = tmp_path / "events.db"
+    run_cli(["--db", str(db_path), "fetch"])
+    run_cli(["--db", str(db_path), "fetch"])
+    assert count_events(db_path) == 7
+
+
+def run_cli_capture_stderr(args: list[str]) -> tuple[str, str]:
+    """Like run_cli, but also captures stderr (used for warnings/failures)."""
+    import contextlib
+    old_argv = sys.argv
+    sys.argv = ["sf-event-curator", *args]
+    out, err = io.StringIO(), io.StringIO()
+    try:
+        with redirect_stdout(out), contextlib.redirect_stderr(err):
+            cli_module.main()
+    finally:
+        sys.argv = old_argv
+    return out.getvalue(), err.getvalue()
+
+
+def test_a_failing_fetcher_does_not_block_the_others(tmp_path, monkeypatch):
+    """If DoTheBay's scraper breaks (e.g. site redesign), Funcheap must still work."""
+    funcheap_bytes = FIXTURE.read_bytes()
+
+    def dispatch_urlopen(req, timeout=None):
+        if "dothebay.com" in req.full_url:
+            raise RuntimeError("simulated DoTheBay outage/redesign")
+        return FakeResponse(funcheap_bytes)
+
+    monkeypatch.setattr("urllib.request.urlopen", dispatch_urlopen)
+
+    db_path = tmp_path / "events.db"
+    out, err = run_cli_capture_stderr(["--db", str(db_path), "fetch"])
+
+    assert "funcheap_sf: 3 events fetched" in out
+    assert "dothebay: FAILED" in err
+    assert count_events(db_path) == 3  # funcheap's events still made it in
+
+
+def test_zero_results_from_a_fragile_source_prints_a_warning(tmp_path, monkeypatch):
+    funcheap_bytes = FIXTURE.read_bytes()
+    empty_html = b"<html><body>no events here</body></html>"
+
+    def dispatch_urlopen(req, timeout=None):
+        if "dothebay.com" in req.full_url:
+            return FakeResponse(empty_html)
+        return FakeResponse(funcheap_bytes)
+
+    monkeypatch.setattr("urllib.request.urlopen", dispatch_urlopen)
+
+    db_path = tmp_path / "events.db"
+    out, err = run_cli_capture_stderr(["--db", str(db_path), "fetch"])
+
+    assert "dothebay: 0 events fetched" in out
+    assert "warning: dothebay returned 0 events" in err
+
+
+def test_export_writes_valid_json_with_expected_shape(tmp_path, fake_network):
+    import json
+
+    db_path = tmp_path / "events.db"
+    out_path = tmp_path / "docs" / "data" / "events.json"
+
+    run_cli(["--db", str(db_path), "fetch"])
+    output = run_cli(["--db", str(db_path), "export", "--out", str(out_path)])
+
+    assert "exported 7 events" in output
+    assert out_path.exists()
+
+    data = json.loads(out_path.read_text())
+    assert len(data) == 7
+    assert all("id" in e and "title" in e and "start_ts" in e for e in data)
+    # categories must be split back into a list, not left as the DB's comma-joined string
+    assert all(isinstance(e["categories"], list) for e in data)
+    assert all("is_free" in e for e in data)
+    funcheap_events = [e for e in data if e["source"] == "funcheap_sf"]
+    assert all(e["is_free"] for e in funcheap_events)  # all fixture events are free
+
+
+def test_export_creates_parent_directories(tmp_path):
+    db_path = tmp_path / "events.db"
+    out_path = tmp_path / "deeply" / "nested" / "dir" / "events.json"
+    run_cli(["--db", str(db_path), "export", "--out", str(out_path)])
+    assert out_path.exists()
+
+
+def test_export_on_empty_db_writes_empty_array(tmp_path):
+    import json
+
+    db_path = tmp_path / "events.db"
+    out_path = tmp_path / "events.json"
+    output = run_cli(["--db", str(db_path), "export", "--out", str(out_path)])
+    assert "exported 0 events" in output
+    assert json.loads(out_path.read_text()) == []

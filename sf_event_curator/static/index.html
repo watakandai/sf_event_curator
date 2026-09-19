@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SF Event Curator</title>
+<style>
+  :root { --border:#e2e2e2; --accent:#c0392b; --bg:#fafafa; --card:#fff; --text:#222; --muted:#777; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); margin: 0; }
+  header { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; background: var(--card); }
+  header h1 { font-size: 1.25rem; margin: 0; }
+  main { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 1.25rem; }
+  .toolbar input[type=text] { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+  .toolbar label { font-size: 13px; display: flex; align-items: center; gap: 4px; color: var(--muted); }
+  button { cursor: pointer; border: 1px solid var(--border); background: var(--card); border-radius: 6px; padding: 6px 12px; font-size: 13px; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.small { padding: 3px 8px; font-size: 12px; }
+  .month-group { margin-bottom: 1.75rem; }
+  .month-group h2 { font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .event-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; margin-bottom: 10px; display: flex; justify-content: space-between; gap: 12px; }
+  .event-main { flex: 1; }
+  .event-date { font-size: 12px; color: var(--muted); text-transform: uppercase; }
+  .event-title { font-weight: 600; margin: 2px 0 4px; }
+  .event-meta { font-size: 13px; color: var(--muted); }
+  .badge { display: inline-block; font-size: 11px; background: #eee; border-radius: 4px; padding: 2px 6px; margin-top: 6px; margin-right: 4px; }
+  .badge.free { background: #e5f6ea; color: #1e7e34; }
+  .event-actions { display: flex; flex-direction: column; gap: 6px; }
+  dialog { border: none; border-radius: 10px; padding: 0; width: 420px; max-width: 90vw; }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  .dialog-body { padding: 1.25rem; }
+  .dialog-body h3 { margin-top: 0; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; }
+  .field input, .field textarea { width: 100%; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; font-family: inherit; }
+  .field textarea { resize: vertical; min-height: 50px; }
+  .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .empty { color: var(--muted); font-size: 14px; padding: 2rem 0; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SF Event Curator</h1>
+  <button class="primary" onclick="openCreateDialog()">+ Add event</button>
+</header>
+<main>
+  <div class="toolbar">
+    <input type="text" id="searchBox" placeholder="Search title or venue..." oninput="render()">
+    <input type="text" id="categoryBox" placeholder="Category contains..." oninput="render()">
+    <label><input type="checkbox" id="freeOnly" onchange="render()"> Free only</label>
+    <button onclick="loadEvents()">Refresh</button>
+  </div>
+  <div id="results"></div>
+</main>
+
+<dialog id="eventDialog">
+  <form class="dialog-body" id="eventForm" onsubmit="return submitForm(event)">
+    <h3 id="dialogTitle">Add event</h3>
+    <input type="hidden" id="eventId">
+    <div class="field"><label>Title</label><input id="f-title" required></div>
+    <div class="field"><label>Start (date & time)</label><input id="f-start" type="datetime-local"></div>
+    <div class="field"><label>End (date & time)</label><input id="f-end" type="datetime-local"></div>
+    <div class="field"><label>Venue</label><input id="f-venue"></div>
+    <div class="field"><label>Address</label><input id="f-address"></div>
+    <div class="field"><label>Cost (e.g. 0 for free)</label><input id="f-cost"></div>
+    <div class="field"><label>Categories (comma separated)</label><input id="f-categories"></div>
+    <div class="field"><label>URL</label><input id="f-url"></div>
+    <div class="field"><label>Notes</label><textarea id="f-description"></textarea></div>
+    <div class="dialog-actions">
+      <button type="button" onclick="closeDialog()">Cancel</button>
+      <button type="submit" class="primary">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+let allEvents = [];
+
+async function loadEvents() {
+  const res = await fetch('/api/events');
+  allEvents = await res.json();
+  render();
+}
+
+function render() {
+  const search = document.getElementById('searchBox').value.toLowerCase();
+  const category = document.getElementById('categoryBox').value.toLowerCase();
+  const freeOnly = document.getElementById('freeOnly').checked;
+
+  let filtered = allEvents.filter(e => {
+    if (freeOnly && !e.is_free) return false;
+    if (category && !e.categories.join(',').toLowerCase().includes(category)) return false;
+    if (search && !(e.title.toLowerCase().includes(search) || e.venue.toLowerCase().includes(search))) return false;
+    return true;
+  });
+
+  const groups = {};
+  for (const e of filtered) {
+    const key = e.start_ts ? e.start_ts.slice(0, 7) : 'Undated';
+    (groups[key] = groups[key] || []).push(e);
+  }
+  const sortedKeys = Object.keys(groups).sort();
+
+  const container = document.getElementById('results');
+  if (sortedKeys.length === 0) {
+    container.innerHTML = '<div class="empty">No events match. Try clearing filters or add one.</div>';
+    return;
+  }
+
+  container.innerHTML = sortedKeys.map(key => `
+    <div class="month-group">
+      <h2>${monthLabel(key)}</h2>
+      ${groups[key].map(cardHtml).join('')}
+    </div>
+  `).join('');
+}
+
+function monthLabel(key) {
+  if (key === 'Undated') return 'Undated';
+  const [y, m] = key.split('-');
+  const d = new Date(Number(y), Number(m) - 1, 1);
+  return d.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+}
+
+function cardHtml(e) {
+  const when = e.start_ts ? new Date(e.start_ts).toLocaleString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+  }) : 'Date TBD';
+  const badges = e.categories.slice(0, 3).map(c => `<span class="badge">${escapeHtml(c)}</span>`).join('');
+  const freeBadge = e.is_free ? '<span class="badge free">Free</span>' : '';
+  return `
+    <div class="event-card">
+      <div class="event-main">
+        <div class="event-date">${when}</div>
+        <div class="event-title">${escapeHtml(e.title)}</div>
+        <div class="event-meta">${escapeHtml(e.venue || '')}</div>
+        <div>${freeBadge}${badges}</div>
+      </div>
+      <div class="event-actions">
+        <button class="small" onclick="openEditDialog(${e.id})">Edit</button>
+        <button class="small" onclick="deleteEvent(${e.id})">Delete</button>
+      </div>
+    </div>
+  `;
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function openCreateDialog() {
+  document.getElementById('dialogTitle').textContent = 'Add event';
+  document.getElementById('eventForm').reset();
+  document.getElementById('eventId').value = '';
+  document.getElementById('eventDialog').showModal();
+}
+
+function openEditDialog(id) {
+  const e = allEvents.find(ev => ev.id === id);
+  if (!e) return;
+  document.getElementById('dialogTitle').textContent = 'Edit event';
+  document.getElementById('eventId').value = e.id;
+  document.getElementById('f-title').value = e.title;
+  document.getElementById('f-start').value = toLocalInput(e.start_ts);
+  document.getElementById('f-end').value = toLocalInput(e.end_ts);
+  document.getElementById('f-venue').value = e.venue || '';
+  document.getElementById('f-address').value = e.address || '';
+  document.getElementById('f-cost').value = e.cost || '';
+  document.getElementById('f-categories').value = (e.categories || []).join(', ');
+  document.getElementById('f-url').value = e.url || '';
+  document.getElementById('f-description').value = e.description || '';
+  document.getElementById('eventDialog').showModal();
+}
+
+function toLocalInput(ts) {
+  if (!ts) return '';
+  return ts.slice(0, 16);
+}
+
+function closeDialog() {
+  document.getElementById('eventDialog').close();
+}
+
+async function submitForm(evt) {
+  evt.preventDefault();
+  const id = document.getElementById('eventId').value;
+  const payload = {
+    title: document.getElementById('f-title').value,
+    start: document.getElementById('f-start').value || null,
+    end: document.getElementById('f-end').value || null,
+    venue: document.getElementById('f-venue').value,
+    address: document.getElementById('f-address').value,
+    cost: document.getElementById('f-cost').value,
+    categories: document.getElementById('f-categories').value.split(',').map(s => s.trim()).filter(Boolean),
+    url: document.getElementById('f-url').value,
+    description: document.getElementById('f-description').value,
+  };
+  const opts = { method: id ? 'PATCH' : 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) };
+  await fetch(id ? `/api/events/${id}` : '/api/events', opts);
+  closeDialog();
+  loadEvents();
+  return false;
+}
+
+async function deleteEvent(id) {
+  if (!confirm('Delete this event?')) return;
+  await fetch(`/api/events/${id}`, { method: 'DELETE' });
+  loadEvents();
+}
+
+loadEvents();
+</script>
+</body>
+</html>
