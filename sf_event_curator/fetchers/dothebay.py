@@ -25,6 +25,16 @@ CARD_RE = re.compile(
     r"background-image:\s*url\('(?P<image>[^']+)'\)",
     re.S,
 )
+# Listing cards also carry the site's own category as a class, e.g.
+# "ds-event-category-music". It's the only category signal DoTheBay exposes
+# here, and it's what makes filtering by kind of event possible for this
+# source at all.
+CATEGORY_CARD_RE = re.compile(
+    r'class="[^"]*\bds-event-category-(?P<category>[a-z0-9-]+)[^"]*"'
+    r'(?:(?!data-permalink=).){0,300}?'
+    r'data-permalink="(?P<path>/events/[^"]+)"',
+    re.S,
+)
 
 
 class _AnchorCollector(HTMLParser):
@@ -80,9 +90,11 @@ class DoTheBayFetcher:
       so there's no reliable generic way to associate it with a specific
       event. Every event's `start` is midnight on the correct date - always
       follow the source link for the actual time.
-    - No cost or category data: unlike Funcheap's structured feed, DoTheBay's
-      page doesn't expose these as parseable per-event fields here, so
-      `cost` and `categories` are left at their defaults ("" and []).
+    - No cost data: unlike Funcheap's structured feed, DoTheBay's page
+      doesn't expose price as a parseable per-event field here, so `cost` is
+      left at its default (""). Categories DO come through, from each card's
+      own `ds-event-category-*` class - markup-dependent like the images,
+      so best-effort rather than guaranteed.
     - The test fixture `dothebay_sample.html` is a HAND-BUILT snippet
       mirroring the URL/anchor patterns, predating any live capture; the
       cover-image fixture alongside it is a real trimmed capture. Verify
@@ -142,6 +154,7 @@ class DoTheBayFetcher:
 
     def parse(self, html: str) -> list[Event]:
         images = _cover_images(html)
+        categories = _card_categories(html)
         collector = _AnchorCollector()
         collector.feed(html)
 
@@ -166,6 +179,10 @@ class DoTheBayFetcher:
                     end=None,
                     url=urljoin(BASE_URL, href),
                     images=[images[k] for k in (path, path.rstrip("/")) if k in images][:1],
+                    categories=next(
+                        (categories[k] for k in (path, path.rstrip("/")) if k in categories),
+                        [],
+                    ),
                 )
                 continue
 
@@ -180,6 +197,33 @@ class DoTheBayFetcher:
         if current is not None:
             events.append(current)
         return events
+
+
+# DoTheBay's slugs vs the vocabulary the rest of the app filters on.
+CATEGORY_LABELS = {
+    "music": "Live Music",
+    "comedy": "Comedy",
+    "film": "Film",
+    "theatre-performing-arts": "Theater & Performance",
+    "arts-culture": "Art & Museums",
+    "food-drink": "Eating & Drinking",
+    "festivals-fairs": "Fairs & Festivals",
+    "sports-fitness": "Sports",
+    "community": "Community",
+    "variety": "Variety",
+}
+
+
+def _card_categories(html: str) -> dict[str, list[str]]:
+    """Map event path -> [category], from each card's own category class."""
+    out: dict[str, list[str]] = {}
+    for m in CATEGORY_CARD_RE.finditer(html):
+        slug = m.group("category")
+        label = CATEGORY_LABELS.get(slug, slug.replace("-", " ").title())
+        path = m.group("path")
+        out.setdefault(path, [label])
+        out.setdefault(path.rstrip("/"), [label])
+    return out
 
 
 def _cover_images(html: str) -> dict[str, str]:
