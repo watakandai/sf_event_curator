@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<!-- One real item from sf.funcheap.com/rssfeed2/, kept for the
+     <enclosure> artwork the older funcheap_sample.xml capture predates. -->
+<rss version="2.0" xmlns:funCheap="https://sf.funcheap.com/rssfeed/">
+<channel>
+  <title>FunCheapSF.com Feed</title>
+  <link>https://sf.funcheap.com/</link>
+  <description>The latest events from sf.funcheap.com.</description>
+  <language>en-us</language>
+  <pubDate>Sat, 19 Sep 2026 02:06:31 +0000</pubDate>
+  <lastBuildDate>Sat, 19 Sep 2026 02:06:31 +0000</lastBuildDate>
+  <managingEditor>johnny@funcheap.com</managingEditor>
+  <item>
+    <title>SF&#8217;s Legendary &#8220;Bruno&#8217;s&#8221; Lounge Soft Re-Opening w/ DJs ($5 Night)</title>
+    <link>https://sf.funcheap.com/sfs-legendary-brunos-lounge-soft-reopening-djs-5-night/</link>
+    <description><![CDATA[“Bruno’s" a San Francisco Legend is back. We will be upstairs in the Lounge Room.  Password: LEGEND (for $5 entery)  DJs: DIRTYHERTZ M80 Jose VIZCAINO  Saturday September 19 Bruno’s 2389 Mission San Francisco 10pm-2am 21+...<br><br><i>Event listing curated for CBS 5 by Johnny
+Funcheap, editor of <a href="https://sf.funcheap.com">FuncheapSF</a>, a
+website and weekly e-guide that spotlights the Bay Area&#146;s best
+free events. </i>]]></description>
+    <pubDate>Sat, 19 Sep 2026 00:34:39 +0000</pubDate>
+    <guid>https://sf.funcheap.com/sfs-legendary-brunos-lounge-soft-reopening-djs-5-night/</guid>
+	<enclosure url="https://cdn.funcheap.com/wp-content/uploads/2010/05/50336_327396872503_3919_n1.jpg" length="" type=""/>
+	<enclosure url="https://cdn.funcheap.com/wp-content/thumbnails/170x170/wp-content/uploads/2010/05/50336_327396872503_3919_n1.jpg" length="123" type=""/>
+	<funCheap:eventDate>Sat, 19 Sep 2026 00:00:00 +0000</funCheap:eventDate>
+    <funCheap:startTime>Sat, 19 Sep 2026 22:00:00 +0000</funCheap:startTime>
+    <funCheap:endTime>Sat, 19 Sep 2026 02:00:00 +0000</funCheap:endTime>
+    <funCheap:cost>5</funCheap:cost>
+    <funCheap:costDetails>Password: LEGEND (for $5 entery)</funCheap:costDetails>
+    <funCheap:url>https://www.instagram.com/dirtyhertzofficial</funCheap:url>
+    <funCheap:allDay value="false"/>
+    <funCheap:venue>Bruno&#039;s</funCheap:venue>
+    <funCheap:venueAddress>2389 Mission st San Francisco</funCheap:venueAddress>
+    <funCheap:categories>*Top Pick*,- Select One -,Club / DJ,In Person</funCheap:categories>
+    <funCheap:tags></funCheap:tags>
+  </item>
+</channel></rss>

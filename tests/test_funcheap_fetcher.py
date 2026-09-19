@@ -129,3 +129,53 @@ def test_fetch_uses_urlopen_and_parses_response(monkeypatch):
     assert len(events) == 3
     assert captured["url"] == fetcher.feed_url
     assert captured["timeout"] == fetcher.timeout
+
+
+ENCLOSURE_FIXTURE = Path(__file__).parent / "fixtures" / "funcheap_enclosure.xml"
+
+
+def test_enclosure_images_are_collected_from_a_real_capture():
+    """Funcheap publishes event artwork as RSS <enclosure> elements.
+
+    Uses its own fixture: the main funcheap_sample.xml capture predates the
+    feed carrying enclosures, and other tests pin its exact contents.
+    """
+    [event] = FuncheapFetcher().parse(ENCLOSURE_FIXTURE.read_bytes())
+    assert event.images, "no images parsed from the live-captured item"
+    assert all(u.startswith("https://") for u in event.images)
+    assert not any("/thumbnails/" in u for u in event.images)
+
+
+def test_the_older_fixture_simply_has_no_images():
+    """Absence of artwork must not break parsing of an older feed shape."""
+    events = FuncheapFetcher().parse(FIXTURE.read_bytes())
+    assert events and all(e.images == [] for e in events)
+
+
+def test_thumbnail_duplicates_are_dropped():
+    """The feed lists each image twice - original and a 170x170 thumbnail."""
+    xml = b"""<rss xmlns:funCheap="https://sf.funcheap.com/rssfeed/"><channel><item>
+      <title>Thing</title><link>https://example.com/a</link>
+      <enclosure url="https://cdn.funcheap.com/wp-content/uploads/pic.jpg"/>
+      <enclosure url="https://cdn.funcheap.com/wp-content/thumbnails/170x170/wp-content/uploads/pic.jpg"/>
+    </item></channel></rss>"""
+    [event] = FuncheapFetcher().parse(xml)
+    assert event.images == ["https://cdn.funcheap.com/wp-content/uploads/pic.jpg"]
+
+
+def test_distinct_images_are_all_kept():
+    xml = b"""<rss xmlns:funCheap="https://sf.funcheap.com/rssfeed/"><channel><item>
+      <title>Thing</title><link>https://example.com/a</link>
+      <enclosure url="https://cdn.funcheap.com/one.jpg"/>
+      <enclosure url="https://cdn.funcheap.com/two.jpg"/>
+    </item></channel></rss>"""
+    [event] = FuncheapFetcher().parse(xml)
+    assert event.images == ["https://cdn.funcheap.com/one.jpg", "https://cdn.funcheap.com/two.jpg"]
+
+
+def test_an_item_with_no_enclosure_has_no_images():
+    xml = b"""<rss xmlns:funCheap="https://sf.funcheap.com/rssfeed/"><channel><item>
+      <title>Thing</title><link>https://example.com/a</link>
+    </item></channel></rss>"""
+    [event] = FuncheapFetcher().parse(xml)
+    assert event.images == []

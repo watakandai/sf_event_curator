@@ -1,7 +1,7 @@
 from __future__ import annotations
 import re
 import urllib.request
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from html.parser import HTMLParser
 from urllib.parse import unquote, urljoin
 
@@ -11,6 +11,20 @@ BASE_URL = "https://dothebay.com"
 EVENT_HREF_RE = re.compile(r"^/events/(\d{4})/(\d{1,2})/(\d{1,2})/[\w-]+/?$")
 VENUE_HREF_RE = re.compile(r"^/venues/[\w-]+/?$")
 MAPS_QUERY_RE = re.compile(r"[?&]q=([^&]+)")
+# Each listing card pairs a data-permalink (the same path the anchor parser
+# keys on) with a CSS background-image holding the event artwork. Reading the
+# two together is what lets an image be attached to a specific event.
+# The `between` group explicitly cannot span another data-permalink. A
+# plain .{0,400}? would let a card that has no image of its own swallow the
+# region up to the NEXT card's background-image - and because finditer
+# consumes what it matches, that next card would then silently lose its
+# artwork rather than merely being mis-paired.
+CARD_RE = re.compile(
+    r'data-permalink="(?P<path>/events/[^"]+)"'
+    r'(?P<between>(?:(?!data-permalink=).){0,400}?)'
+    r"background-image:\s*url\('(?P<image>[^']+)'\)",
+    re.S,
+)
 
 
 class _AnchorCollector(HTMLParser):
@@ -54,6 +68,12 @@ class DoTheBayFetcher:
     CSS classes or DOM nesting. It does not depend on any particular tag
     structure, class name, or attribute beyond href/text on <a> elements.
 
+    Cover images are the exception to that rule, and are held to a lower
+    standard on purpose: they come from a `data-permalink` attribute paired
+    with a CSS `background-image` on the listing card, which IS markup the
+    site can change freely. Images are therefore best-effort - a redesign
+    loses the artwork while the events themselves keep parsing.
+
     Known limitations (by design, not oversight):
     - No time-of-day: DoTheBay doesn't encode event start time in the URL,
       and loose time text like "7:00PM" on the page isn't inside an anchor,
@@ -63,11 +83,10 @@ class DoTheBayFetcher:
     - No cost or category data: unlike Funcheap's structured feed, DoTheBay's
       page doesn't expose these as parseable per-event fields here, so
       `cost` and `categories` are left at their defaults ("" and []).
-    - The test fixture for this fetcher is a HAND-BUILT HTML snippet that
-      mirrors the URL/anchor patterns observed on the live site (captured via
-      an external fetch, since this sandbox can't reach dothebay.com
-      directly) - it is NOT a captured raw response the way the Funcheap
-      fixture is. Verify against the real site after any DoTheBay redesign.
+    - The test fixture `dothebay_sample.html` is a HAND-BUILT snippet
+      mirroring the URL/anchor patterns, predating any live capture; the
+      cover-image fixture alongside it is a real trimmed capture. Verify
+      against the live site after any DoTheBay redesign.
 
     Recommended monitoring: alert if fetch() returns 0 events, since that's
     the most likely symptom of an upstream markup change.
@@ -75,18 +94,54 @@ class DoTheBayFetcher:
 
     name = "dothebay"
 
-    def __init__(self, path: str = "/events/today", timeout: int = 15):
+    def __init__(
+        self,
+        path: str = "/events/today",
+        timeout: int = 15,
+        days_ahead: int = 14,
+        today: date | None = None,
+    ):
         self.path = path
         self.timeout = timeout
+        self.days_ahead = days_ahead
+        self._today = today
 
     def fetch(self) -> list[Event]:
-        url = urljoin(BASE_URL, self.path)
-        req = urllib.request.Request(url, headers={"User-Agent": "sf-event-curator/0.1"})
-        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-            html = resp.read().decode("utf-8", errors="replace")
-        return self.parse(html)
+        """Walk one page per day.
+
+        `/events/today` only ever returns the current day, and a weekly job
+        exporting upcoming events threw almost all of that away as already
+        past. Per-date pages (/events/YYYY/M/D) carry the same markup, so
+        walking forward a fortnight is the difference between contributing a
+        handful of events and contributing a few hundred.
+        """
+        events: list[Event] = []
+        seen: set[str] = set()
+        for path in self._paths():
+            url = urljoin(BASE_URL, path)
+            req = urllib.request.Request(
+                url, headers={"User-Agent": "sf-event-curator/0.1"}
+            )
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+            for event in self.parse(html):
+                if event.source_id in seen:
+                    continue
+                seen.add(event.source_id)
+                events.append(event)
+        return events
+
+    def _paths(self) -> list[str]:
+        if self.days_ahead <= 0:
+            return [self.path]
+        start = self._today or date.today()
+        return [
+            f"/events/{d.year}/{d.month}/{d.day}"
+            for d in (start + timedelta(days=i) for i in range(self.days_ahead))
+        ]
 
     def parse(self, html: str) -> list[Event]:
+        images = _cover_images(html)
         collector = _AnchorCollector()
         collector.feed(html)
 
@@ -102,6 +157,7 @@ class DoTheBayFetcher:
                 if current is not None:
                     events.append(current)
                 year, month, day = (int(g) for g in event_match.groups())
+                path = href if href.startswith("/") else "/" + href
                 current = Event(
                     source=self.name,
                     source_id=urljoin(BASE_URL, href),
@@ -109,6 +165,7 @@ class DoTheBayFetcher:
                     start=datetime(year, month, day),
                     end=None,
                     url=urljoin(BASE_URL, href),
+                    images=[images[k] for k in (path, path.rstrip("/")) if k in images][:1],
                 )
                 continue
 
@@ -123,6 +180,16 @@ class DoTheBayFetcher:
         if current is not None:
             events.append(current)
         return events
+
+
+def _cover_images(html: str) -> dict[str, str]:
+    """Map event path -> artwork URL for every card on the page."""
+    out: dict[str, str] = {}
+    for m in CARD_RE.finditer(html):
+        path = m.group("path")
+        out.setdefault(path, m.group("image"))
+        out.setdefault(path.rstrip("/"), m.group("image"))
+    return out
 
 
 def _address_from_maps_url(url: str) -> str:

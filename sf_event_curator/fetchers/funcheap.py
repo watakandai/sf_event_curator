@@ -52,6 +52,7 @@ class FuncheapFetcher:
                     categories=_categories(item),
                     url=_text(item, "funCheap:url") or link,
                     description=_text(item, "description"),
+                    images=_images(item),
                 )
             )
         return events
@@ -70,6 +71,21 @@ def _dt(item: ET.Element, tag: str) -> datetime | None:
         return parsedate_to_datetime(el.text.strip())
     except (TypeError, ValueError):
         return None
+
+
+# The feed carries each event's artwork twice: the original upload and a
+# 170x170 thumbnail of the same file. They're one image, not two, so the
+# thumbnail is dropped rather than padding out a carousel with duplicates.
+THUMB_MARKER = "/thumbnails/"
+
+
+def _images(item: ET.Element) -> list[str]:
+    urls = []
+    for enc in item.findall("enclosure"):
+        url = (enc.get("url") or "").strip()
+        if url and THUMB_MARKER not in url and url not in urls:
+            urls.append(url)
+    return urls
 
 
 def _categories(item: ET.Element) -> list[str]:
