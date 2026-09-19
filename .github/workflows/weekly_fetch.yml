@@ -1,0 +1,45 @@
+name: Weekly event fetch
+
+# This is the one piece of this project's deployment that GitHub Actions
+# genuinely improves on self-hosting: Actions runners have real outbound
+# internet access, unlike the sandbox this project was originally built and
+# tested in - so this is the first place the DoTheBay scraper (fetchers/
+# dothebay.py) will actually run against the live site rather than a
+# hand-built fixture. Watch the first few runs' logs for it.
+#
+# No `pip install` step, deliberately: cli.py, db.py, models.py, and both
+# fetchers are pure standard-library Python - fastapi/uvicorn in
+# requirements.txt are only needed to run the web dashboard, not to fetch
+# or export data. Verified by AST-walking every import in those files.
+
+on:
+  schedule:
+    - cron: '0 9 * * MON'  # 9am UTC every Monday - adjust if you want a specific local time
+  workflow_dispatch: {}      # lets you trigger a run manually from the Actions tab
+  push:
+    branches: [main]         # so the site has real data after the first merge, not just an empty page
+
+permissions:
+  contents: write
+
+jobs:
+  fetch-and-export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch events
+        run: python -m sf_event_curator.cli --db /tmp/events.db fetch
+
+      - name: Export to static JSON
+        run: python -m sf_event_curator.cli --db /tmp/events.db export --out docs/data/events.json
+
+      - name: Commit and push if the export changed
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: 'Weekly event data refresh'
+          file_pattern: docs/data/events.json
