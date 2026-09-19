@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -242,6 +243,11 @@ class ProviderError(ValueError):
     it: one bad batch is reported and skipped, not fatal.
     """
 
+    def __init__(self, message: str, status: int | None = None, retry_after: float | None = None):
+        super().__init__(message)
+        self.status = status
+        self.retry_after = retry_after
+
 
 def _redact(text: str) -> str:
     """Never let an API key reach a log. Gemini puts its key in the URL."""
@@ -267,7 +273,27 @@ def _post_json(url: str, headers: dict, payload: dict, timeout: int) -> dict:
         except Exception:  # pragma: no cover - body already consumed
             body = ""
         detail = _redact(body)[:400] or exc.reason
-        raise ProviderError(f"HTTP {exc.code}: {detail}") from None
+        raise ProviderError(
+            f"HTTP {exc.code}: {detail}",
+            status=exc.code,
+            retry_after=_retry_after(exc.headers, body),
+        ) from None
+
+
+def _retry_after(headers, body: str) -> float | None:
+    """How long the provider asked us to wait, if it said.
+
+    Anthropic sends a retry-after header; Gemini puts "retryDelay": "37s" in
+    the error body instead.
+    """
+    value = headers.get("retry-after") if headers else None
+    if value:
+        try:
+            return float(value)
+        except ValueError:
+            pass
+    match = re.search(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"', body or "")
+    return float(match.group(1)) if match else None
 
 
 def _call_anthropic(prompt: str, model: str, api_key: str, timeout: int) -> str:
@@ -339,6 +365,22 @@ def parse_scores(text: str, batch_size: int) -> dict[int, tuple[float, str]]:
     return out
 
 
+# Waits between retries of a rate-limited batch, when the provider doesn't
+# say how long. Free-tier limits are per minute, so the last wait covers a
+# full window.
+RETRY_WAITS = (15, 30, 65)
+
+
+def _call_with_retry(call, prompt, model, key, timeout, sleep):
+    for wait in RETRY_WAITS + (None,):
+        try:
+            return call(prompt, model, key, timeout)
+        except ProviderError as exc:
+            if exc.status not in (429, 503) or wait is None:
+                raise
+            sleep(min(exc.retry_after or wait, 120))
+
+
 def llm_scores(
     rows: list[dict],
     profile: str,
@@ -348,12 +390,14 @@ def llm_scores(
     batch_size: int = 20,
     timeout: int = 90,
     on_progress=None,
+    sleep=time.sleep,
 ) -> dict[int, tuple[float, str]]:
     """Score rows against the profile. Returns {event id: (score, reason)}.
 
     Batches are independent: one failing batch is reported and skipped rather
     than losing the whole run, so a rate limit halfway through still leaves
-    you with the batches that succeeded.
+    you with the batches that succeeded. A 429 is waited out and retried
+    first, since the free tiers limit requests per minute.
     """
     if provider not in PROVIDERS:
         raise ValueError(f"unknown provider {provider!r}; expected one of {sorted(PROVIDERS)}")
@@ -364,16 +408,26 @@ def llm_scores(
     model = model or default_model
 
     out: dict[int, tuple[float, str]] = {}
+    rate_limited = False
     for start in range(0, len(rows), batch_size):
         batch = rows[start:start + batch_size]
+        if rate_limited:
+            # Once retries couldn't get past a 429, this is a daily quota
+            # rather than a per-minute one - every later batch would fail the
+            # same way. They stay unscored and the next run picks them up.
+            if on_progress:
+                on_progress(start, len(batch), "skipped (rate limited)")
+            continue
         prompt = PROMPT.format(
             profile=profile,
             events="\n".join(_event_line(i, r) for i, r in enumerate(batch, 1)),
         )
         try:
-            reply = call(prompt, model, key, timeout)
+            reply = _call_with_retry(call, prompt, model, key, timeout, sleep)
             scored = parse_scores(reply, len(batch))
         except (urllib.error.URLError, urllib.error.HTTPError, ValueError, KeyError) as exc:
+            if getattr(exc, "status", None) == 429:
+                rate_limited = True
             if on_progress:
                 on_progress(start, len(batch), f"FAILED ({type(exc).__name__}: {exc})")
             continue

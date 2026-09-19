@@ -253,7 +253,18 @@ To turn on LLM ranking in CI, set the repo variable `RANKER_PROVIDER` to
 `gemini` or `anthropic` (Settings → Variables) and add the
 matching secret. Left unset, the LLM step is skipped and the site ships
 heuristic scores only, so a fork with no keys still works. `RANKER_LIMIT`
-caps how many events get sent per run.
+caps how many events get sent per run; a manual run can override it, e.g. to
+score the whole backlog at once:
+
+```bash
+gh workflow run "Weekly event fetch" -f limit=0
+```
+
+Add `-f rescore_all=true` to re-score events that already have an LLM score.
+Gemini's free tier (a key from a project with billing off) is enough for
+this: when a request is refused for going over the per-minute limit, the
+ranker waits and retries, and if it's still refused after about two minutes
+it treats that as the daily quota and leaves the rest for the next run.
 
 The workflow **caches the SQLite database between runs** — that's what makes
 LLM ranking affordable, since only unseen events are scored. Losing the cache

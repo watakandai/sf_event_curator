@@ -32,6 +32,11 @@ on:
         required: false
         type: boolean
         default: false
+      limit:
+        description: 'Max events to LLM-score this run (blank = RANKER_LIMIT variable, 0 = no limit)'
+        required: false
+        type: string
+        default: ''
   push:
     branches: [main]
 
@@ -102,11 +107,21 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PROVIDER: ${{ steps.ranker.outputs.provider }}
+          RESCORE_ALL: ${{ inputs.rescore_all }}
+          # A manual run's `limit` input wins over the variable, so a one-off
+          # "score everything" run doesn't mean editing repo settings.
+          LIMIT: ${{ inputs.limit != '' && inputs.limit || vars.RANKER_LIMIT }}
         run: |
-          python -m sf_event_curator.cli --db /tmp/events.db rank --llm \
-            --provider '${{ steps.ranker.outputs.provider }}' \
-            ${{ inputs.rescore_all && '--rescore-all' || '' }} \
-            ${{ vars.RANKER_LIMIT && format('--limit {0}', vars.RANKER_LIMIT) || '' }}
+          args=(--provider "$PROVIDER")
+          [ "$RESCORE_ALL" = true ] && args+=(--rescore-all)
+          if [ -n "$LIMIT" ]; then
+            case "$LIMIT" in
+              *[!0-9]*) echo "::error::limit must be a whole number, got '$LIMIT'"; exit 1 ;;
+            esac
+            args+=(--limit "$LIMIT")
+          fi
+          python -m sf_event_curator.cli --db /tmp/events.db rank --llm "${args[@]}"
 
       - name: Export to static JSON
         run: |

@@ -327,3 +327,77 @@ def test_a_failed_batch_reports_the_reason_and_spares_the_others(monkeypatch):
 
     assert "quota exhausted" in notes[0]
     assert set(out) == {2}
+
+
+def test_a_rate_limit_carries_the_wait_the_provider_asked_for(monkeypatch):
+    """Gemini puts the wait in the body, not a header."""
+    import urllib.error
+
+    body = b'{"error":{"code":429,"details":[{"retryDelay":"37s"}]}}'
+
+    def boom(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(rank.urllib.request, "urlopen", boom)
+    with pytest.raises(rank.ProviderError) as info:
+        rank._post_json("https://example.test/v1", {}, {"a": 1}, 30)
+    assert info.value.status == 429
+    assert info.value.retry_after == 37.0
+
+
+def _stub(monkeypatch, fn):
+    monkeypatch.setitem(rank.PROVIDERS, "stub", ("STUB_KEY", "m", fn))
+    monkeypatch.setenv("STUB_KEY", "x")
+
+
+def test_a_per_minute_limit_is_waited_out_not_lost(monkeypatch):
+    calls = {"n": 0}
+
+    def limited_once(prompt, model, key, timeout):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise rank.ProviderError("HTTP 429: slow down", status=429, retry_after=20)
+        return json.dumps([{"i": 1, "score": 50, "reason": "ok"}])
+
+    _stub(monkeypatch, limited_once)
+    waits: list[float] = []
+    rows = [{"id": 1, "title": "A"}, {"id": 2, "title": "B"}]
+
+    out = rank.llm_scores(rows, "profile", provider="stub", batch_size=1, sleep=waits.append)
+
+    assert set(out) == {1, 2}
+    assert waits == [20]
+
+
+def test_a_quota_that_never_clears_stops_the_run(monkeypatch):
+    """Past the retries it's a daily quota: don't burn calls on every batch."""
+    calls = {"n": 0}
+
+    def always_limited(prompt, model, key, timeout):
+        calls["n"] += 1
+        raise rank.ProviderError("HTTP 429: quota", status=429)
+
+    _stub(monkeypatch, always_limited)
+    notes: list[str] = []
+    rows = [{"id": i, "title": str(i)} for i in range(3)]
+
+    out = rank.llm_scores(rows, "profile", provider="stub", batch_size=1,
+                          sleep=lambda s: None,
+                          on_progress=lambda o, s, note: notes.append(note))
+
+    assert out == {}
+    assert calls["n"] == len(rank.RETRY_WAITS) + 1
+    assert notes[1:] == ["skipped (rate limited)"] * 2
+
+
+def test_other_errors_are_not_retried(monkeypatch):
+    calls = {"n": 0}
+
+    def bad_request(prompt, model, key, timeout):
+        calls["n"] += 1
+        raise rank.ProviderError("HTTP 400: bad", status=400)
+
+    _stub(monkeypatch, bad_request)
+    rank.llm_scores([{"id": 1, "title": "A"}], "profile", provider="stub",
+                    sleep=lambda s: pytest.fail("should not wait"))
+    assert calls["n"] == 1
