@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -23,6 +24,9 @@ CREATE TABLE IF NOT EXISTS events (
     fetched_at TEXT NOT NULL,
     notability INTEGER NOT NULL DEFAULT 0,
     date_approx INTEGER NOT NULL DEFAULT 0,
+    images TEXT,
+    lat REAL,
+    lon REAL,
     score REAL,
     score_reason TEXT,
     scored_by TEXT,
@@ -36,6 +40,19 @@ CREATE TABLE IF NOT EXISTS events (
 # references a column that pre-ranking databases don't have yet, so creating it
 # before ALTER TABLE runs fails outright and makes an existing database
 # impossible to open.
+# Geocode cache keyed by place rather than by event: venues repeat heavily
+# (about 300 distinct places across ~1000 events) and outlive any single
+# listing, so this is what keeps repeat runs from re-querying the geocoder.
+GEOCACHE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS geocache (
+    place_key TEXT PRIMARY KEY,
+    lat REAL,
+    lon REAL,
+    display_name TEXT,
+    resolved_at TEXT NOT NULL
+);
+"""
+
 INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_ts);
 CREATE INDEX IF NOT EXISTS idx_events_score ON events(score);
@@ -47,6 +64,9 @@ SCHEMA = SCHEMA_TABLE + INDEXES
 # in a script, so init_db diffs against the live table instead of requiring
 # anyone to delete and re-fetch their database.
 MIGRATIONS = {
+    "images": "TEXT",
+    "lat": "REAL",
+    "lon": "REAL",
     "notability": "INTEGER NOT NULL DEFAULT 0",
     "date_approx": "INTEGER NOT NULL DEFAULT 0",
     "score": "REAL",
@@ -76,6 +96,7 @@ def init_db(db_path: str | Path) -> None:
     """
     with connect(db_path) as conn:
         conn.executescript(SCHEMA_TABLE)
+        conn.executescript(GEOCACHE_SCHEMA)
         existing = {r["name"] for r in conn.execute("PRAGMA table_info(events)")}
         for column, decl in MIGRATIONS.items():
             if column not in existing:
@@ -91,14 +112,15 @@ def upsert_events(db_path: str | Path, events: list[Event]) -> int:
                 """INSERT INTO events
                    (source, source_id, title, start_ts, end_ts, venue, address,
                     cost, categories, url, description, fetched_at,
-                    notability, date_approx)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    notability, date_approx, images)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(source, source_id) DO UPDATE SET
                      title=excluded.title, start_ts=excluded.start_ts, end_ts=excluded.end_ts,
                      venue=excluded.venue, address=excluded.address, cost=excluded.cost,
                      categories=excluded.categories, url=excluded.url,
                      description=excluded.description, fetched_at=excluded.fetched_at,
-                     notability=excluded.notability, date_approx=excluded.date_approx""",
+                     notability=excluded.notability, date_approx=excluded.date_approx,
+                     images=excluded.images""",
                 (
                     e.source, e.source_id, e.title,
                     e.start.isoformat() if e.start else None,
@@ -106,6 +128,7 @@ def upsert_events(db_path: str | Path, events: list[Event]) -> int:
                     e.venue, e.address, e.cost, ",".join(e.categories),
                     e.url, e.description, now,
                     e.notability, int(e.date_approx),
+                    json.dumps(e.images) if e.images else None,
                 ),
             )
     return len(events)
@@ -197,6 +220,7 @@ def row_to_dict(row: sqlite3.Row) -> dict:
     d["categories"] = [c for c in (d["categories"] or "").split(",") if c]
     d["is_free"] = d["cost"] == "0"
     d["date_approx"] = bool(d.get("date_approx"))
+    d["images"] = json.loads(d["images"]) if d.get("images") else []
     return d
 
 
@@ -233,3 +257,65 @@ def unscored_events(db_path: str | Path, profile_hash: str,
     sql += "ORDER BY start_ts ASC"
     with connect(db_path) as conn:
         return conn.execute(sql, params).fetchall()
+
+
+def get_geocache(db_path: str | Path) -> dict[str, tuple[float, float]]:
+    """Every resolved place, so a run can geocode only what it hasn't seen."""
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT place_key, lat, lon FROM geocache WHERE lat IS NOT NULL"
+        ).fetchall()
+    return {r["place_key"]: (r["lat"], r["lon"]) for r in rows}
+
+
+def geocache_misses(db_path: str | Path) -> set[str]:
+    """Places looked up before and found unresolvable.
+
+    Recorded so a run doesn't spend its request budget re-asking about the
+    same unparseable venue string every week.
+    """
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT place_key FROM geocache WHERE lat IS NULL"
+        ).fetchall()
+    return {r["place_key"] for r in rows}
+
+
+def put_geocache(db_path: str | Path, place_key: str, lat: float | None,
+                 lon: float | None, display_name: str = "") -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    with connect(db_path) as conn:
+        conn.execute(
+            """INSERT INTO geocache (place_key, lat, lon, display_name, resolved_at)
+               VALUES (?,?,?,?,?)
+               ON CONFLICT(place_key) DO UPDATE SET
+                 lat=excluded.lat, lon=excluded.lon,
+                 display_name=excluded.display_name, resolved_at=excluded.resolved_at""",
+            (place_key, lat, lon, display_name, now),
+        )
+
+
+def clear_coordinates(db_path: str | Path, event_ids: list[int]) -> int:
+    """Blank coordinates on events whose place is no longer resolvable.
+
+    Needed because set_coordinates only writes places that resolved: without
+    this, a coordinate rejected or invalidated after it was first stored
+    would stay on the row and keep a wrong pin on the map.
+    """
+    if not event_ids:
+        return 0
+    with connect(db_path) as conn:
+        conn.executemany(
+            "UPDATE events SET lat = NULL, lon = NULL WHERE id = ?",
+            [(i,) for i in event_ids],
+        )
+    return len(event_ids)
+
+
+def set_coordinates(db_path: str | Path, coords: dict[int, tuple[float, float]]) -> int:
+    with connect(db_path) as conn:
+        for event_id, (lat, lon) in coords.items():
+            conn.execute(
+                "UPDATE events SET lat = ?, lon = ? WHERE id = ?", (lat, lon, event_id)
+            )
+    return len(coords)

@@ -23,6 +23,10 @@ class Event:
     # True when the date comes from a typical-timing rule rather than an
     # announced date - the UI flags these so nobody books travel on one.
     date_approx: bool = False
+    # Event artwork, largest first. Only sources that publish images per
+    # event fill this (Funcheap enclosures, DoTheBay cover images); the rest
+    # leave it empty rather than substituting a stock picture.
+    images: list[str] = field(default_factory=list)
 
     @property
     def is_free(self) -> bool:
