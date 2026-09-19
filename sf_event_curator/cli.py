@@ -2,18 +2,31 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
-from .db import init_db, upsert_events, query_events, row_to_dict
+from . import rank as ranking
+from .db import (
+    init_db, upsert_events, query_events, row_to_dict, set_scores, unscored_events,
+)
+from .fetchers.annual import AnnualEventsFetcher
 from .fetchers.dothebay import DoTheBayFetcher
 from .fetchers.funcheap import FuncheapFetcher
+from .fetchers.nineteenhz import NineteenHzFetcher
+from .fetchers.sfrecpark import SFRecParkFetcher
 
 DEFAULT_DB = Path.home() / ".sf_event_curator" / "events.db"
-FETCHERS = [FuncheapFetcher(), DoTheBayFetcher()]
+FETCHERS = [
+    AnnualEventsFetcher(),
+    FuncheapFetcher(),
+    DoTheBayFetcher(),
+    SFRecParkFetcher(),
+    NineteenHzFetcher(),
+]
 
-# Sources known to be fragile (HTML scraping rather than RSS/API) - a silent
-# drop to zero here is the main failure mode worth watching for.
-FRAGILE_SOURCES = {"dothebay"}
+# Sources known to be fragile (HTML scraping rather than RSS/API/local data) -
+# a silent drop to zero here is the main failure mode worth watching for.
+FRAGILE_SOURCES = {"dothebay", "sfrecpark", "19hz_bayarea"}
 
 
 def main() -> None:
@@ -21,44 +34,192 @@ def main() -> None:
     parser.add_argument("--db", default=str(DEFAULT_DB))
     sub = parser.add_subparsers(dest="cmd", required=True)
     sub.add_parser("fetch", help="pull latest events from all sources into the db")
-    sub.add_parser("list", help="print stored events, soonest first")
+
+    list_parser = sub.add_parser("list", help="print stored events")
+    list_parser.add_argument(
+        "--sort", choices=("date", "score"), default="date",
+        help="date (soonest first) or score (best match first)",
+    )
+    list_parser.add_argument("--limit", type=int, default=0, help="0 means no limit")
+
     export_parser = sub.add_parser(
         "export", help="dump all events to a JSON file (for the static-site build)"
     )
     export_parser.add_argument(
         "--out", required=True, help="output path, e.g. docs/data/events.json"
     )
+    export_parser.add_argument("--sort", choices=("date", "score"), default="date")
+    export_parser.add_argument(
+        "--include-past", action="store_true",
+        help="keep events whose start date has passed (default: drop them)",
+    )
+    export_parser.add_argument(
+        "--full", action="store_true",
+        help="export every column instead of just the fields the static page reads",
+    )
+
+    rank_parser = sub.add_parser(
+        "rank", help="score events for relevance (heuristic always, LLM optionally)"
+    )
+    rank_parser.add_argument(
+        "--llm", action="store_true",
+        help="also score against profile.md with an LLM (needs the provider's API key)",
+    )
+    rank_parser.add_argument(
+        "--provider", choices=sorted(ranking.PROVIDERS), default="anthropic",
+    )
+    rank_parser.add_argument("--model", default=None, help="override the provider default")
+    rank_parser.add_argument("--profile", default=str(ranking.DEFAULT_PROFILE))
+    rank_parser.add_argument(
+        "--limit", type=int, default=0,
+        help="cap how many events get sent to the LLM this run (0 = all unscored)",
+    )
+    rank_parser.add_argument("--batch-size", type=int, default=20)
+    rank_parser.add_argument(
+        "--rescore-all", action="store_true",
+        help="re-send events already scored against the current profile",
+    )
+
     args = parser.parse_args()
 
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
     init_db(args.db)
 
     if args.cmd == "fetch":
-        for f in FETCHERS:
-            try:
-                events = f.fetch()
-            except Exception as exc:
-                print(f"{f.name}: FAILED ({exc})", file=sys.stderr)
-                continue
-            upsert_events(args.db, events)
-            print(f"{f.name}: {len(events)} events fetched")
-            if not events and f.name in FRAGILE_SOURCES:
-                print(
-                    f"  warning: {f.name} returned 0 events - this source is HTML-scraped "
-                    "and may need its parser updated if the site changed.",
-                    file=sys.stderr,
-                )
+        _cmd_fetch(args)
     elif args.cmd == "list":
-        for row in query_events(args.db):
-            when = (row["start_ts"] or "?")[:16].replace("T", " ")
-            free = " (free)" if row["cost"] == "0" else ""
-            print(f"{when:17} {row['title'][:55]:55} {row['venue']}{free}")
+        _cmd_list(args)
     elif args.cmd == "export":
-        events = [row_to_dict(row) for row in query_events(args.db)]
-        out_path = Path(args.out)
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(json.dumps(events, indent=2, default=str))
-        print(f"exported {len(events)} events to {out_path}")
+        _cmd_export(args)
+    elif args.cmd == "rank":
+        _cmd_rank(args)
+
+
+def _cmd_fetch(args) -> None:
+    for f in FETCHERS:
+        try:
+            events = f.fetch()
+        except Exception as exc:
+            print(f"{f.name}: FAILED ({exc})", file=sys.stderr)
+            continue
+        upsert_events(args.db, events)
+        print(f"{f.name}: {len(events)} events fetched")
+        if not events and f.name in FRAGILE_SOURCES:
+            print(
+                f"  warning: {f.name} returned 0 events - this source is HTML-scraped "
+                "and may need its parser updated if the site changed.",
+                file=sys.stderr,
+            )
+
+
+def _cmd_list(args) -> None:
+    rows = query_events(args.db, order_by=args.sort)
+    if args.limit:
+        rows = rows[: args.limit]
+    for row in rows:
+        when = (row["start_ts"] or "?")[:16].replace("T", " ")
+        free = " (free)" if row["cost"] == "0" else ""
+        score = f"{row['score']:5.1f}" if row["score"] is not None else "    -"
+        approx = "~" if row["date_approx"] else " "
+        print(f"{score} {approx}{when:17} {row['title'][:52]:52} {row['venue']}{free}")
+
+
+# Columns the static page actually reads. The rest (source_id, fetched_at,
+# scored_at, profile_hash, notability) are bookkeeping that the browser never
+# touches, and with ~1k events they are most of the payload - this file is
+# fetched on every page load.
+EXPORT_FIELDS = (
+    "id", "source", "title", "start_ts", "end_ts", "venue", "address",
+    "cost", "is_free", "categories", "url", "description",
+    "score", "score_reason", "scored_by", "date_approx",
+)
+DESCRIPTION_LIMIT = 280
+
+
+def _slim(event: dict) -> dict:
+    out = {k: event[k] for k in EXPORT_FIELDS if k in event}
+    desc = out.get("description") or ""
+    if len(desc) > DESCRIPTION_LIMIT:
+        out["description"] = desc[:DESCRIPTION_LIMIT].rstrip() + "..."
+    return out
+
+
+def _cmd_export(args) -> None:
+    today = date.today().isoformat()
+    events = [row_to_dict(row) for row in query_events(args.db, order_by=args.sort)]
+    total = len(events)
+    if not args.include_past:
+        # Undated events are kept: "date TBD" is upcoming until proven otherwise.
+        events = [e for e in events if not e["start_ts"] or e["start_ts"][:10] >= today]
+    if not args.full:
+        events = [_slim(e) for e in events]
+
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    # One compact event per line: valid JSON, a third smaller than indent=2,
+    # and still reviewable as a diff - the weekly refresh commits this file,
+    # and a single-line 500KB blob would make every change unreadable.
+    lines = ",\n".join(
+        "  " + json.dumps(e, separators=(",", ":"), default=str) for e in events
+    )
+    out_path.write_text(f"[\n{lines}\n]\n" if events else "[]\n")
+    dropped = total - len(events)
+    note = f" ({dropped} past events dropped)" if dropped else ""
+    print(f"exported {len(events)} events to {out_path}{note}")
+
+
+def _cmd_rank(args) -> None:
+    rows = [row_to_dict(r) for r in query_events(args.db)]
+    if not rows:
+        print("no events to rank - run `fetch` first")
+        return
+
+    scores = ranking.heuristic_scores(rows)
+    set_scores(args.db, scores, scored_by="heuristic", profile_hash="")
+    print(f"heuristic: scored {len(scores)} events")
+
+    if not args.llm:
+        print("(pass --llm to also rank against profile.md)")
+        return
+
+    try:
+        profile = ranking.load_profile(args.profile)
+    except FileNotFoundError as exc:
+        print(f"llm: SKIPPED ({exc})", file=sys.stderr)
+        return
+
+    model = args.model or ranking.PROVIDERS[args.provider][1]
+    phash = ranking.profile_hash(profile, model)
+
+    if args.rescore_all:
+        todo = [row_to_dict(r) for r in query_events(args.db)]
+    else:
+        todo = [row_to_dict(r) for r in unscored_events(args.db, phash)]
+    if args.limit:
+        todo = todo[: args.limit]
+
+    if not todo:
+        print(f"llm: nothing to do - all events already scored for profile {phash}")
+        return
+
+    print(f"llm: sending {len(todo)} events to {args.provider}/{model} in batches of {args.batch_size}")
+
+    def progress(offset: int, size: int, note: str) -> None:
+        print(f"  batch {offset // args.batch_size + 1} ({size} events): {note}")
+
+    try:
+        llm = ranking.llm_scores(
+            todo, profile,
+            provider=args.provider, model=model,
+            batch_size=args.batch_size, on_progress=progress,
+        )
+    except (RuntimeError, ValueError) as exc:
+        print(f"llm: SKIPPED ({exc})", file=sys.stderr)
+        return
+
+    if llm:
+        set_scores(args.db, llm, scored_by=f"{args.provider}:{model}", profile_hash=phash)
+    print(f"llm: scored {len(llm)}/{len(todo)} events for profile {phash}")
 
 
 if __name__ == "__main__":

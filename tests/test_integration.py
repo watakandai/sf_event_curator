@@ -52,6 +52,21 @@ def fake_network(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
 
 
+@pytest.fixture
+def only_fixture_fetchers(monkeypatch):
+    """Restrict the CLI to the two sources that have fixtures.
+
+    These tests exercise CLI orchestration - fetch/list/export wiring - not
+    the source registry, so they pin the fetcher list rather than asserting
+    against whatever FETCHERS currently holds. Without this, adding a source
+    breaks them, and AnnualEventsFetcher in particular reads a local data
+    file, so `fake_network` cannot stub it out.
+    """
+    monkeypatch.setattr(
+        cli_module, "FETCHERS", [FuncheapFetcher(), DoTheBayFetcher()]
+    )
+
+
 def test_pipeline_parse_store_and_filter(tmp_path):
     db_path = tmp_path / "events.db"
     init_db(db_path)
@@ -93,7 +108,7 @@ def run_cli(args: list[str]) -> str:
     return buf.getvalue()
 
 
-def test_cli_fetch_then_list_end_to_end(tmp_path, fake_network):
+def test_cli_fetch_then_list_end_to_end(tmp_path, fake_network, only_fixture_fetchers):
     db_path = tmp_path / "events.db"
 
     fetch_output = run_cli(["--db", str(db_path), "fetch"])
@@ -119,7 +134,7 @@ def test_cli_creates_db_file_and_parent_dirs(tmp_path):
     assert db_path.exists()
 
 
-def test_cli_second_fetch_does_not_duplicate_rows(tmp_path, fake_network):
+def test_cli_second_fetch_does_not_duplicate_rows(tmp_path, fake_network, only_fixture_fetchers):
     db_path = tmp_path / "events.db"
     run_cli(["--db", str(db_path), "fetch"])
     run_cli(["--db", str(db_path), "fetch"])
@@ -140,7 +155,7 @@ def run_cli_capture_stderr(args: list[str]) -> tuple[str, str]:
     return out.getvalue(), err.getvalue()
 
 
-def test_a_failing_fetcher_does_not_block_the_others(tmp_path, monkeypatch):
+def test_a_failing_fetcher_does_not_block_the_others(tmp_path, monkeypatch, only_fixture_fetchers):
     """If DoTheBay's scraper breaks (e.g. site redesign), Funcheap must still work."""
     funcheap_bytes = FIXTURE.read_bytes()
 
@@ -159,7 +174,7 @@ def test_a_failing_fetcher_does_not_block_the_others(tmp_path, monkeypatch):
     assert count_events(db_path) == 3  # funcheap's events still made it in
 
 
-def test_zero_results_from_a_fragile_source_prints_a_warning(tmp_path, monkeypatch):
+def test_zero_results_from_a_fragile_source_prints_a_warning(tmp_path, monkeypatch, only_fixture_fetchers):
     funcheap_bytes = FIXTURE.read_bytes()
     empty_html = b"<html><body>no events here</body></html>"
 
@@ -177,14 +192,16 @@ def test_zero_results_from_a_fragile_source_prints_a_warning(tmp_path, monkeypat
     assert "warning: dothebay returned 0 events" in err
 
 
-def test_export_writes_valid_json_with_expected_shape(tmp_path, fake_network):
+def test_export_writes_valid_json_with_expected_shape(tmp_path, fake_network, only_fixture_fetchers):
     import json
 
     db_path = tmp_path / "events.db"
     out_path = tmp_path / "docs" / "data" / "events.json"
 
     run_cli(["--db", str(db_path), "fetch"])
-    output = run_cli(["--db", str(db_path), "export", "--out", str(out_path)])
+    output = run_cli(
+        ["--db", str(db_path), "export", "--out", str(out_path), "--include-past", "--full"]
+    )
 
     assert "exported 7 events" in output
     assert out_path.exists()
@@ -214,3 +231,76 @@ def test_export_on_empty_db_writes_empty_array(tmp_path):
     output = run_cli(["--db", str(db_path), "export", "--out", str(out_path)])
     assert "exported 0 events" in output
     assert json.loads(out_path.read_text()) == []
+
+
+def test_export_drops_past_events_by_default(tmp_path, fake_network, only_fixture_fetchers):
+    """The static page only ever shows upcoming events, so past ones are dead weight."""
+    import json
+    from datetime import date
+
+    db_path = tmp_path / "events.db"
+    out_path = tmp_path / "events.json"
+    run_cli(["--db", str(db_path), "fetch"])
+    run_cli(["--db", str(db_path), "export", "--out", str(out_path)])
+
+    today = date.today().isoformat()
+    data = json.loads(out_path.read_text())
+    assert all(e["start_ts"][:10] >= today for e in data if e["start_ts"])
+
+
+def test_export_slims_fields_unless_full(tmp_path, fake_network, only_fixture_fetchers):
+    """Bookkeeping columns the browser never reads stay out of the payload."""
+    import json
+
+    db_path = tmp_path / "events.db"
+    slim_path = tmp_path / "slim.json"
+    full_path = tmp_path / "full.json"
+    run_cli(["--db", str(db_path), "fetch"])
+    run_cli(["--db", str(db_path), "export", "--out", str(slim_path), "--include-past"])
+    run_cli(["--db", str(db_path), "export", "--out", str(full_path), "--include-past", "--full"])
+
+    slim = json.loads(slim_path.read_text())[0]
+    full = json.loads(full_path.read_text())[0]
+    assert "fetched_at" in full and "source_id" in full
+    assert "fetched_at" not in slim and "profile_hash" not in slim
+    assert {"id", "title", "start_ts", "score", "date_approx"} <= set(slim)
+    assert slim_path.stat().st_size < full_path.stat().st_size
+
+
+def test_export_is_one_event_per_line(tmp_path, fake_network, only_fixture_fetchers):
+    """Compact per-line JSON keeps the committed refresh diff reviewable."""
+    db_path = tmp_path / "events.db"
+    out_path = tmp_path / "events.json"
+    run_cli(["--db", str(db_path), "fetch"])
+    run_cli(["--db", str(db_path), "export", "--out", str(out_path), "--include-past"])
+
+    lines = out_path.read_text().splitlines()
+    assert lines[0] == "[" and lines[-1] == "]"
+    assert len(lines) == 7 + 2  # one line per event, plus the brackets
+
+
+def test_cli_rank_then_list_by_score(tmp_path, fake_network, only_fixture_fetchers):
+    """`rank` with no --llm scores everything heuristically and list --sort score uses it."""
+    db_path = tmp_path / "events.db"
+    run_cli(["--db", str(db_path), "fetch"])
+    rank_output = run_cli(["--db", str(db_path), "rank"])
+    assert "heuristic: scored 7 events" in rank_output
+
+    rows = query_events(db_path, order_by="score")
+    scores = [r["score"] for r in rows]
+    assert all(s is not None for s in scores)
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_cli_rank_without_llm_does_not_need_a_key(tmp_path, fake_network, only_fixture_fetchers):
+    """No API key, no network to a provider: the heuristic path must still work."""
+    db_path = tmp_path / "events.db"
+    run_cli(["--db", str(db_path), "fetch"])
+    output = run_cli(["--db", str(db_path), "rank"])
+    assert "pass --llm" in output
+
+
+def test_cli_rank_on_empty_db_is_graceful(tmp_path):
+    db_path = tmp_path / "events.db"
+    output = run_cli(["--db", str(db_path), "rank"])
+    assert "no events to rank" in output
