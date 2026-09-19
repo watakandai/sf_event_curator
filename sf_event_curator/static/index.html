@@ -82,6 +82,17 @@
   .pager button[disabled] { opacity: .4; cursor: default; }
   /* --- top picks of the week --- */
   .top-week { margin-bottom: 1.75rem; }
+  .seasons { margin-bottom: 1.75rem; }
+  .seasons h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  .season-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; margin-top: 10px; }
+  .season { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+  .season-title { font-weight: 600; font-size: 14px; }
+  .season-title a { color: var(--text); text-decoration: none; }
+  .season-title a:hover { text-decoration: underline; }
+  .season-title .badge { margin-right: 6px; }
+  .season-when { font-size: 12px; color: var(--accent); margin: 3px 0 4px; }
+  .season-desc { font-size: 12px; color: var(--muted); line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .season-more { margin-top: 8px; }
   .top-week h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
   .top-week .top-sub { font-size: 12px; color: var(--muted); margin: 6px 0 10px; }
   .top-pick { display: flex; gap: 10px; align-items: flex-start; }
@@ -176,13 +187,14 @@ let selectedDay = null;  // 'YYYY-MM-DD' for the day list under the grid
 // Festivals, so it stays visible with Music switched off. That replaces the
 // old "hide music, except marquee festivals" special case.
 const KINDS = [
-  { id: 'festivals', label: 'Festivals & Fairs', match: ['fairs & festivals', 'block party', 'oktoberfest', '**annual event**'] },
-  { id: 'arts', label: 'Arts & Film', match: ['art & museums', 'film', 'theater & performance', 'the arts', 'arts family', 'literature', 'lecture education'] },
-  { id: 'community', label: 'Community & Food', match: ['community', 'kids & families', 'political activism', 'lgbtq', 'eating & drinking', 'free food', 'shopping', 'shopping & fashion', 'fun & games', 'experiences'] },
-  { id: 'outdoors', label: 'Outdoors & Sports', match: ['outdoors', 'outdoor recreation', 'sports', 'sports & wellness', 'bike it', 'walks & tours'] },
+  { id: 'seasonal', label: 'In Season', match: ['seasonal'] },
+  { id: 'festivals', label: 'Festivals & Fairs', match: ['fairs & festivals', 'block party', 'oktoberfest', '**annual event**', 'festival'] },
+  { id: 'arts', label: 'Arts & Film', match: ['art & museums', 'film', 'theater & performance', 'the arts', 'arts family', 'literature', 'lecture education', 'arts and culture', 'performance art', 'heritage', 'educational', 'dance'] },
+  { id: 'community', label: 'Community & Food', match: ['community', 'kids & families', 'political activism', 'lgbtq', 'eating & drinking', 'free food', 'shopping', 'shopping & fashion', 'fun & games', 'experiences', 'family friendly', 'farmers market', 'market', 'food & drink', 'food', 'holiday', 'special event', 'attractions'] },
+  { id: 'outdoors', label: 'Outdoors & Sports', match: ['outdoors', 'outdoor recreation', 'sports', 'sports & wellness', 'bike it', 'walks & tours', 'outdoor', 'nature', 'sporting events', 'sailing'] },
   { id: 'parks', label: 'Parks & Rec', match: ['parks & rec'] },
   { id: 'comedy', label: 'Comedy & Shows', match: ['comedy', 'variety'] },
-  { id: 'music', label: 'Music & Nightlife', match: ['live music', 'music', 'club / dj', 'club/dj', 'dj', 'dj parties'] },
+  { id: 'music', label: 'Music & Nightlife', match: ['live music', 'music', 'club / dj', 'club/dj', 'dj', 'dj parties', 'live music & dance', 'jazz by the bay'] },
   { id: 'other', label: 'Other', match: [] },
 ];
 // Music is off by default because profile.md pushes it down, and 19hz alone
@@ -197,6 +209,12 @@ for (const k of KINDS) for (const m of k.match) kindOfLabel[m] = k.id;
 function eventKinds(e) {
   if (e._kinds) return e._kinds;
   const kinds = new Set();
+  // A season is only ever "In Season": whale watching also carries
+  // Outdoors, but switching In Season off should hide the whole strip.
+  if (isSeason(e)) {
+    e._kinds = new Set(['seasonal']);
+    return e._kinds;
+  }
   if (e.source === '19hz_bayarea') kinds.add('music');
   for (const c of e.categories || []) {
     const k = kindOfLabel[String(c).trim().toLowerCase()];
@@ -207,10 +225,18 @@ function eventKinds(e) {
   return kinds;
 }
 
+// What's stored is the kinds switched *off*, so a kind added later (In
+// Season was) shows up on for everyone rather than silently hidden. v1
+// stored the kinds switched on, over the kinds that existed then.
+const KINDS_V1 = ['festivals', 'arts', 'community', 'outdoors', 'parks', 'comedy', 'music', 'other'];
+
 function loadActiveKinds() {
   try {
     const saved = JSON.parse(localStorage.getItem(KIND_STORE));
-    if (Array.isArray(saved)) return new Set(saved.filter(id => KINDS.some(k => k.id === id)));
+    let off = null;
+    if (saved && Array.isArray(saved.off)) off = new Set(saved.off);
+    else if (Array.isArray(saved)) off = new Set(KINDS_V1.filter(id => !saved.includes(id)));
+    if (off) return new Set(KINDS.map(k => k.id).filter(id => !off.has(id)));
   } catch (e) { /* private window or blocked storage: fall through */ }
   return defaultKinds();
 }
@@ -220,7 +246,8 @@ function defaultKinds() {
 }
 
 function saveActiveKinds() {
-  try { localStorage.setItem(KIND_STORE, JSON.stringify([...activeKinds])); } catch (e) { /* not critical */ }
+  const off = KINDS.map(k => k.id).filter(id => !activeKinds.has(id));
+  try { localStorage.setItem(KIND_STORE, JSON.stringify({ off })); } catch (e) { /* not critical */ }
 }
 
 function toggleKind(id) {
@@ -332,6 +359,64 @@ function pagerHtml(total) {
   </div>`;
 }
 
+// --- in season --------------------------------------------------------------
+// Seasons (whale watching, pumpkin patches, the crush) are windows you can go
+// any day inside, often months long. On the grid they'd sit on their first
+// day only, and in the top 5 they'd crowd out real events for months - so
+// they get their own strip, following the month the grid is showing.
+const SEASON_SOURCE = 'seasonal_bay_area';
+const SEASONS_SHOWN = 6;
+let seasonsExpanded = false;
+
+function isSeason(e) {
+  return e.source === SEASON_SOURCE;
+}
+
+function seasonsIn(events, year, month) {
+  const from = dateKey(new Date(year, month, 1));
+  const until = dateKey(new Date(year, month + 1, 0));
+  return events
+    .filter(e => isSeason(e) && e.start_ts)
+    .filter(e => e.start_ts.slice(0, 10) <= until && (e.end_ts || e.start_ts).slice(0, 10) >= from)
+    .sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+}
+
+function toggleSeasons() {
+  seasonsExpanded = !seasonsExpanded;
+  render();
+}
+
+function seasonsHtml(seasons) {
+  if (!seasons.length) return '';
+  const month = new Date(calYear, calMonth, 1).toLocaleString('en-US', { month: 'long' });
+  const shown = seasonsExpanded ? seasons : seasons.slice(0, SEASONS_SHOWN);
+  const more = seasons.length > SEASONS_SHOWN
+    ? `<button class="season-more" onclick="toggleSeasons()">${seasonsExpanded ? 'Show fewer' : `Show all ${seasons.length}`}</button>`
+    : '';
+  return `<div class="seasons">
+    <h2>In season in ${month}</h2>
+    <div class="season-list">${shown.map(seasonHtml).join('')}</div>
+    ${more}
+  </div>`;
+}
+
+function seasonHtml(e) {
+  const range = [e.start_ts, e.end_ts || e.start_ts]
+    .map(ts => shortDate(ts.slice(0, 10))).join(' \u2013 ');
+  const where = e.address || e.venue || '';
+  const title = e.url
+    ? `<a href="${escapeHtml(e.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(e.title)}</a>`
+    : escapeHtml(e.title);
+  const score = e.score != null
+    ? `<span class="badge score" title="${escapeHtml(e.score_reason || '')}">${Math.round(e.score)}</span>`
+    : '';
+  return `<div class="season">
+    <div class="season-title">${score}${title}</div>
+    <div class="season-when">${e.date_approx ? 'Typically ' : ''}${range}${where ? ' &middot; ' + escapeHtml(where) : ''}</div>
+    <div class="season-desc">${escapeHtml(e.description || '')}</div>
+  </div>`;
+}
+
 // --- top 5 of the coming month ---------------------------------------------
 // "The month" runs from today to the same date next month, not the calendar
 // month: on the 28th, "September" would have almost nothing left in it. It
@@ -402,6 +487,8 @@ function dateKey(d) {
 }
 
 function renderCalendarView(filtered) {
+  const seasons = seasonsIn(filtered, calYear, calMonth);
+  filtered = filtered.filter(e => !isSeason(e));
   const byDay = {};
   for (const e of filtered) {
     if (!e.start_ts) continue;
@@ -442,6 +529,7 @@ function renderCalendarView(filtered) {
 
   document.getElementById('results').innerHTML = `
     ${topPicksHtml(picks)}
+    ${seasonsHtml(seasons)}
     <div class="calendar-nav">
       <button onclick="changeMonth(-1)">&lsaquo; Prev</button>
       <h2>${monthName}</h2>

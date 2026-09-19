@@ -247,7 +247,29 @@ def test_export_drops_past_events_by_default(tmp_path, fake_network, only_fixtur
 
     today = date.today().isoformat()
     data = json.loads(out_path.read_text())
-    assert all(e["start_ts"][:10] >= today for e in data if e["start_ts"])
+    assert all((e["end_ts"] or e["start_ts"])[:10] >= today for e in data if e["start_ts"])
+
+
+def test_export_keeps_events_still_running(tmp_path):
+    """Whale season opened in April; it's still something you can go to."""
+    import json
+    from datetime import date, datetime, timedelta
+
+    from sf_event_curator.models import Event
+
+    db_path = tmp_path / "events.db"
+    out_path = tmp_path / "events.json"
+    init_db(db_path)
+    today = date.today()
+    started = datetime(today.year, today.month, today.day) - timedelta(days=30)
+    upsert_events(db_path, [
+        Event("seasonal_bay_area", "running", "Running season", started, started + timedelta(days=60)),
+        Event("seasonal_bay_area", "over", "Finished season", started, started + timedelta(days=10)),
+    ])
+    run_cli(["--db", str(db_path), "export", "--out", str(out_path)])
+
+    titles = [e["title"] for e in json.loads(out_path.read_text())]
+    assert titles == ["Running season"]
 
 
 def test_export_slims_fields_unless_full(tmp_path, fake_network, only_fixture_fetchers):

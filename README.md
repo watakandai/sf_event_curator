@@ -6,9 +6,15 @@ read-only static export for GitHub Pages.
 
 ## Features
 
-- **Five sources** (~1,000 events): a curated annual-events list plus
-  [SF Funcheap](https://sf.funcheap.com), [DoTheBay](https://dothebay.com),
-  [SF Rec & Parks](https://sfrecpark.org), and [19hz](https://19hz.info)
+- **Nine sources** (~1,300 upcoming events): curated annual-events and
+  seasons lists plus [SF Funcheap](https://sf.funcheap.com),
+  [DoTheBay](https://dothebay.com), [SF Rec & Parks](https://sfrecpark.org),
+  [19hz](https://19hz.info), and the Santa Cruz, Sausalito and Bodega Bay
+  visitor calendars for day trips
+- **In season**: whale watching, elephant seals, monarchs, pumpkin patches,
+  u-pick fruit, the grape crush, urchin diving, mushrooms, crab season and
+  more within ~3 hours of SF, shown in their own strip for the month on the
+  calendar (a season isn't a one-day event, so it stays off the grid)
 - **Curated annual events** so the big Bay Area dates (Outside Lands, Pride,
   Folsom, Mill Valley Fall Arts) are on your radar months ahead, not the week
   of - stored as recurrence rules, not dates, so the list doesn't rot
@@ -21,7 +27,7 @@ read-only static export for GitHub Pages.
 - **A persistent map beside the results**, Yelp-style: it follows the top
   picks and the selected day's page, and selection is two-way - click a card
   to spotlight its pin, click a pin to highlight and scroll to its card
-- **Filter by kind**: toggle chips for Festivals, Arts & Film, Community &
+- **Filter by kind**: toggle chips for In Season, Festivals, Arts & Film, Community &
   Food, Outdoors & Sports, Parks & Rec, Comedy & Shows and Music & Nightlife.
   Music starts switched off (it's about two thirds of the corpus) - see
   Filtering
@@ -197,6 +203,27 @@ file doesn't need an annual edit. Where timing is only typical - anything
 following a lunar calendar, a league schedule, or an organizer's whim - the
 entry is marked `approx` and the UI flags it with `~` and a "date approx"
 badge. Don't book travel on one without confirming.
+
+**Curated seasons** (`data/seasonal.json`) — also not a network fetch.
+Things you can do on any day inside a window of weeks or months, which no
+event feed lists: whale migrations, pupping and spawning seasons, harvests
+and u-pick, crab and urchin seasons, snow. Each entry is a `from`/`to`
+month-day pair (it may wrap the new year), and each year's window becomes one
+event with a start and end. All are typical timing and marked approximate
+unless the entry says otherwise. Descriptions carry the drive from SF and any
+reservation or license you need. The dated harvest-time festivals (grape
+stomp, pumpkin weigh-off, crane and whale festivals) live in the annual list.
+
+**Visitor-bureau calendars** (`fetchers/tribe.py`) — many towns' tourism sites
+run the same WordPress plugin, The Events Calendar, whose REST API
+(`/wp-json/tribe/events/v1/events`) is public and identical everywhere. One
+fetcher covers them all: Santa Cruz (state-park tours, the monarch walks,
+Elkhorn Slough, festivals), Sausalito and Bodega Bay, 60 days ahead. These
+calendars repeat daily tours dozens of times, so only the next date of each
+title is kept, with a "Repeats: N more dates" note. To add a town, check
+`https://<site>/wp-json/tribe/events/v1/events` returns JSON and add a
+`TribeEventsFetcher` line to `FETCHERS`. South Lake Tahoe works too but was
+left out: ~800 listings, mostly bar nights, 3.5h+ away.
 
 **SF Rec & Parks** — the calendar page is server-rendered ASP.NET carrying
 schema.org/Event microdata, so this reads `itemprop` names (a vocabulary the

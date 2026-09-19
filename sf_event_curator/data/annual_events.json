@@ -1019,6 +1019,296 @@
         "n": 2
       },
       "description": "The first Nutcracker ever staged in the US (approx opening)."
+    },
+    {
+      "id": "hmb-pumpkin-weigh-off",
+      "title": "World Championship Pumpkin Weigh-Off",
+      "venue": "Half Moon Bay",
+      "city": "Half Moon Bay",
+      "cost": "0",
+      "categories": [
+        "Fairs & Festivals",
+        "Outdoors"
+      ],
+      "url": "https://www.pumpkinfest.miramarevents.com/",
+      "notability": 55,
+      "approx": false,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 10,
+        "weekday": 0,
+        "n": 2
+      },
+      "description": "Growers from across the West haul in one-ton pumpkins to be craned onto the scale. Indigenous Peoples' Day Monday. ~45min from SF."
+    },
+    {
+      "id": "sonoma-harvest-fair",
+      "title": "Sonoma County Harvest Fair & World Championship Grape Stomp",
+      "venue": "Sonoma County Fairgrounds",
+      "city": "Santa Rosa",
+      "cost": "",
+      "categories": [
+        "Fairs & Festivals",
+        "Eating & Drinking"
+      ],
+      "url": "https://www.harvestfair.org/",
+      "notability": 55,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 10,
+        "n": 1,
+        "span_days": 2
+      },
+      "description": "Wine and food tasting from the county's harvest, plus the grape stomp: two-person teams race barefoot to press out the most juice. ~1.25h from SF (approx dates)."
+    },
+    {
+      "id": "gravenstein-apple-fair",
+      "title": "Gravenstein Apple Fair",
+      "venue": "Ragle Ranch Regional Park",
+      "city": "Sebastopol",
+      "cost": "",
+      "categories": [
+        "Fairs & Festivals",
+        "Eating & Drinking"
+      ],
+      "url": "https://www.gravensteinapplefair.com/",
+      "notability": 45,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 8,
+        "n": 2,
+        "span_days": 2
+      },
+      "description": "A country fair for the Gravenstein apple: pies, cider, local food and music. ~1.25h from SF (approx dates)."
+    },
+    {
+      "id": "mendocino-whale-festival",
+      "title": "Mendocino Coast Whale Festival",
+      "venue": "Mendocino & Fort Bragg",
+      "city": "Mendocino",
+      "cost": "",
+      "categories": [
+        "Fairs & Festivals",
+        "Outdoors"
+      ],
+      "url": "https://www.visitmendocino.com/",
+      "notability": 45,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 3,
+        "n": 1,
+        "span_days": 2
+      },
+      "description": "Whale walks from the headlands during the northbound gray whale migration, with chowder and wine tastings in town. ~3h from SF (approx dates)."
+    },
+    {
+      "id": "mendocino-wine-mushroom-fest",
+      "title": "Mendocino County Wine & Mushroom Festival",
+      "venue": "Mendocino County",
+      "city": "Mendocino",
+      "cost": "",
+      "categories": [
+        "Fairs & Festivals",
+        "Eating & Drinking",
+        "Walks & Tours"
+      ],
+      "url": "https://www.visitmendocino.com/",
+      "notability": 42,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 11,
+        "n": 1,
+        "span_days": 10
+      },
+      "description": "Guided mushroom forays, foraged-mushroom dinners and winery pairings across the county. ~3h from SF (approx dates)."
+    },
+    {
+      "id": "lodi-sandhill-crane-festival",
+      "title": "Lodi Sandhill Crane Festival",
+      "venue": "Hutchins Street Square",
+      "city": "Lodi",
+      "cost": "",
+      "categories": [
+        "Fairs & Festivals",
+        "Outdoors",
+        "Walks & Tours"
+      ],
+      "url": "https://www.cranefestival.com/",
+      "notability": 40,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 11,
+        "n": 1,
+        "span_days": 3
+      },
+      "description": "Guided sunset crane fly-ins, bird tours and talks during the cranes' winter arrival. ~1.5h from SF (approx dates)."
+    },
+    {
+      "id": "livermore-harvest-wine",
+      "title": "Livermore Valley Harvest Wine Celebration",
+      "venue": "Livermore Valley wineries",
+      "city": "Livermore",
+      "cost": "",
+      "categories": [
+        "Eating & Drinking",
+        "Fairs & Festivals"
+      ],
+      "url": "https://www.lvwine.org/",
+      "notability": 45,
+      "approx": true,
+      "rule": {
+        "type": "after_nth_weekday",
+        "month": 9,
+        "weekday": 0,
+        "n": 1,
+        "offset_days": -1
+      },
+      "description": "One ticket, dozens of wineries pouring new releases and barrel samples over Labor Day weekend. ~1h from SF (approx dates)."
+    },
+    {
+      "id": "wine-road-barrel-tasting",
+      "title": "Wine Road Barrel Tasting Weekends",
+      "venue": "Russian River, Dry Creek & Alexander Valleys",
+      "city": "Healdsburg",
+      "cost": "",
+      "categories": [
+        "Eating & Drinking"
+      ],
+      "url": "https://www.wineroad.com/",
+      "notability": 48,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 3,
+        "n": 1,
+        "span_days": 2
+      },
+      "description": "Taste wine straight from the barrel before it's bottled, at wineries across northern Sonoma. Usually two consecutive weekends. ~1.5h from SF (approx dates)."
+    },
+    {
+      "id": "winter-wineland",
+      "title": "Winter WINEland",
+      "venue": "Russian River, Dry Creek & Alexander Valleys",
+      "city": "Healdsburg",
+      "cost": "",
+      "categories": [
+        "Eating & Drinking"
+      ],
+      "url": "https://www.wineroad.com/",
+      "notability": 40,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 1,
+        "n": 3,
+        "span_days": 2
+      },
+      "description": "A quiet-season tasting weekend: meet the winemakers at dozens of northern Sonoma wineries. ~1.5h from SF (approx dates)."
+    },
+    {
+      "id": "watsonville-strawberry-festival",
+      "title": "Watsonville Strawberry Festival",
+      "venue": "Downtown Watsonville",
+      "city": "Watsonville",
+      "cost": "0",
+      "categories": [
+        "Fairs & Festivals",
+        "Eating & Drinking"
+      ],
+      "url": "https://www.mbsf.com/",
+      "notability": 40,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekend",
+        "month": 8,
+        "n": 1,
+        "span_days": 2
+      },
+      "description": "Strawberry shortcake, a pie-eating contest and a street fair in the heart of berry country. ~1.75h from SF (approx dates)."
+    },
+    {
+      "id": "santa-cruz-clam-chowder",
+      "title": "Santa Cruz Clam Chowder Cook-Off",
+      "venue": "Santa Cruz Beach Boardwalk",
+      "city": "Santa Cruz",
+      "cost": "",
+      "categories": [
+        "Fairs & Festivals",
+        "Eating & Drinking"
+      ],
+      "url": "https://beachboardwalk.com/",
+      "notability": 42,
+      "approx": true,
+      "rule": {
+        "type": "last_full_weekend",
+        "month": 2,
+        "span_days": 2
+      },
+      "description": "Dozens of chowder teams, Boston vs Manhattan, on the Boardwalk; buy a tasting kit and vote. ~1.5h from SF (approx dates)."
+    },
+    {
+      "id": "perseid-meteor-shower",
+      "title": "Perseid meteor shower peak",
+      "venue": "Dark-sky spots: Point Reyes, Mount Diablo, Pinnacles",
+      "city": "Bay Area",
+      "cost": "0",
+      "categories": [
+        "Outdoors"
+      ],
+      "url": "https://www.nps.gov/pinn/",
+      "notability": 45,
+      "approx": true,
+      "rule": {
+        "type": "fixed",
+        "month": 8,
+        "day": 12
+      },
+      "description": "The year's most reliable meteor shower. Get away from city light after midnight, and a moonless year is best. Pinnacles is ~2h from SF."
+    },
+    {
+      "id": "geminid-meteor-shower",
+      "title": "Geminid meteor shower peak",
+      "venue": "Dark-sky spots: Point Reyes, Mount Diablo, Pinnacles",
+      "city": "Bay Area",
+      "cost": "0",
+      "categories": [
+        "Outdoors"
+      ],
+      "url": "https://www.nps.gov/pinn/",
+      "notability": 40,
+      "approx": true,
+      "rule": {
+        "type": "fixed",
+        "month": 12,
+        "day": 13
+      },
+      "description": "Often the richest shower of the year, visible from mid-evening. Bring layers, since December nights are cold."
+    },
+    {
+      "id": "dungeness-crab-opener",
+      "title": "Dungeness crab season opener",
+      "venue": "Bodega Bay / Half Moon Bay",
+      "city": "Bodega Bay",
+      "cost": "",
+      "categories": [
+        "Outdoors",
+        "Eating & Drinking"
+      ],
+      "url": "https://wildlife.ca.gov/Conservation/Marine/Dungeness-Crab",
+      "notability": 45,
+      "approx": true,
+      "rule": {
+        "type": "nth_weekday",
+        "month": 11,
+        "weekday": 5,
+        "n": 1
+      },
+      "description": "Recreational crab season traditionally opens the first Saturday of November, but it's often delayed for whale entanglement risk or domoic acid, so check CDFW."
     }
   ]
 }

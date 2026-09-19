@@ -54,6 +54,10 @@ STOPWORDS = {"the", "a", "an", "of", "at", "in", "on", "and", "presents", "prese
 
 SOURCE_WEIGHT = {
     "annual_bay_area": 0,   # already carries an explicit notability prior
+    "seasonal_bay_area": 0, # likewise
+    "santacruz_org": 2,     # official visitor bureau: parks tours, festivals
+    "visit_sausalito": 1,
+    "bodega_bay": 0,        # mostly restaurant and bar nights
     "funcheap_sf": 4,       # human-curated, structured, free-leaning
     "sfrecpark": 2,         # official, all-ages, reliably real
     "19hz_bayarea": 0,
@@ -197,7 +201,14 @@ def _event_line(i: int, r: dict) -> str:
     bits = [f"{i}. {r['title']}"]
     if r.get("start_ts"):
         bits.append(f"when={r['start_ts'][:16].replace('T', ' ')}")
-    for field in ("venue", "cost"):
+        # Seasons and festivals run for days or months; say so, or a whale
+        # season reads as a one-day event.
+        end = (r.get("end_ts") or "")[:10]
+        if end and end > r["start_ts"][:10]:
+            bits.append(f"until={end}")
+    # The address carries the town - the difference between a bar in the
+    # Mission and a day trip to Mendocino.
+    for field in ("venue", "address", "cost"):
         if (r.get(field) or "").strip():
             bits.append(f"{field}={r[field]}")
     cats = r.get("categories")

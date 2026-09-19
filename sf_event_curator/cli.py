@@ -17,7 +17,9 @@ from .fetchers.annual import AnnualEventsFetcher
 from .fetchers.dothebay import DoTheBayFetcher
 from .fetchers.funcheap import FuncheapFetcher
 from .fetchers.nineteenhz import NineteenHzFetcher
+from .fetchers.seasonal import SeasonalFetcher
 from .fetchers.sfrecpark import SFRecParkFetcher
+from .fetchers.tribe import TribeEventsFetcher
 
 DEFAULT_DB = Path.home() / ".sf_event_curator" / "events.db"
 FETCHERS = [
@@ -26,6 +28,13 @@ FETCHERS = [
     DoTheBayFetcher(),
     SFRecParkFetcher(),
     NineteenHzFetcher(),
+    SeasonalFetcher(),
+    # Day trips: visitor-bureau calendars that all run the same WordPress
+    # events plugin. South Lake Tahoe (tahoesouth.com) works too, but it's
+    # ~800 listings, mostly bar nights, 3.5h+ away.
+    TribeEventsFetcher("santacruz_org", "https://www.santacruz.org"),
+    TribeEventsFetcher("visit_sausalito", "https://www.visitsausalito.org"),
+    TribeEventsFetcher("bodega_bay", "https://www.bodegabay.com"),
 ]
 
 # Sources known to be fragile (HTML scraping rather than RSS/API/local data) -
@@ -175,7 +184,12 @@ def _cmd_export(args) -> None:
     total = len(events)
     if not args.include_past:
         # Undated events are kept: "date TBD" is upcoming until proven otherwise.
-        events = [e for e in events if not e["start_ts"] or e["start_ts"][:10] >= today]
+        # Anything still running counts too - a festival on its second day, or
+        # whale season that opened in April.
+        events = [
+            e for e in events
+            if not e["start_ts"] or (e["end_ts"] or e["start_ts"])[:10] >= today
+        ]
     if not args.full:
         events = [_slim(e) for e in events]
 

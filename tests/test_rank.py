@@ -451,3 +451,12 @@ def test_min_interval_spaces_out_requests(monkeypatch):
 
     assert len(out) == 3
     assert sent == [0, 15, 30]
+
+
+def test_the_llm_sees_where_an_event_is_and_how_long_it_runs():
+    line = rank._event_line(1, {
+        "title": "Gray whales", "start_ts": "2026-12-15T00:00:00",
+        "end_ts": "2027-04-30T00:00:00", "venue": "Lighthouse", "address": "Inverness",
+    })
+    assert "until=2027-04-30" in line
+    assert "address=Inverness" in line
