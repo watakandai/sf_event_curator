@@ -15,13 +15,17 @@ read-only static export for GitHub Pages.
 - **Ranking**: a free offline heuristic always runs; optionally an LLM scores
   every event against `profile.md` - your background and taste in plain
   English. Pluggable provider: Claude, Gemini, or GitHub Models' free tier
-- **List and calendar views**, sortable by best match or by date
+- **List and calendar views**, sortable by best match or by date, paginated
+  5 per page, with a "Top 5 of the week" section above the list
+- **Event artwork, times and mapped locations**: cover images where a source
+  publishes them, start/end times, addresses linked to Google Maps, and a
+  per-day map view in the calendar (Leaflet + OpenStreetMap)
 - SQLite storage with dedup on `(source, source_id)`, so repeated fetches
   never create duplicates
 - Web dashboard: browse, filter (free-only, category), and manually
   add/edit/delete events (e.g. "Ocean Beach bonfire, Friday, bring firewood")
 - Static JSON export for a read-only deployment (GitHub Pages)
-- 155 tests, no network required to run them
+- 197 tests, no network required to run them
 
 ## Quickstart
 
@@ -38,6 +42,7 @@ python3 -m uvicorn sf_event_curator.web:app --reload   # dashboard at http://127
 
 ```bash
 python3 -m sf_event_curator.cli fetch                   # pull from all sources
+python3 -m sf_event_curator.cli geocode                 # venue text -> coordinates (cached)
 python3 -m sf_event_curator.cli rank                    # heuristic scores, offline & free
 python3 -m sf_event_curator.cli rank --llm              # also score against profile.md
 python3 -m sf_event_curator.cli list --sort score       # best match first
@@ -48,6 +53,33 @@ python3 -m sf_event_curator.cli export --out docs/data/events.json --sort score
 
 `export` drops past events and trims bookkeeping columns by default, since the
 static page is fetched on every visit; `--include-past` and `--full` opt out.
+
+## Maps and images
+
+`geocode` resolves venue text to coordinates so the calendar's day view can
+show a map. It is keyed by **place, not event** - about 350 distinct places
+cover ~1,300 events - and cached in the database permanently, so the first
+run does real work and later runs do almost none. The exported JSON carries
+the coordinates, so the page itself geocodes nothing.
+
+It uses Nominatim (OpenStreetMap): no API key, but it asks for at most one
+request per second and an identifying User-Agent, both of which this honours.
+`--limit` caps requests per run so a backlog is worked off over several runs.
+Failures are cached too, so an unparseable venue isn't re-queried weekly. At
+real scale, use a paid geocoder rather than leaning on a donated service.
+
+Results are validated against a Northern California bounding box. A viewbox
+alone is only a *preference*, and generic venue names genuinely resolved to
+the wrong half of the state ("Union Square Plaza" landed near Santa Clarita);
+a confident wrong pin is worse than no pin. About 78% of events get
+coordinates; the rest are venues like "TBA" or unnumbered cross-streets.
+
+**Images** come only from sources that publish them per event: DoTheBay cover
+art (reliable) and Funcheap RSS enclosures (some point at uploads its CDN no
+longer serves, so the UI drops an image that fails to load). Roughly a
+quarter of events have artwork. No source currently provides more than one
+image per event, so the carousel controls are present but dormant - see the
+note in Roadmap.
 
 ## Ranking
 
@@ -89,6 +121,7 @@ sf_event_curator/
   models.py           Event dataclass
   db.py                SQLite schema, CRUD, query filters
   rank.py              heuristic + LLM rankers, provider adapters
+  geocode.py           venue text -> coordinates, via Nominatim
   data/
     annual_events.json Curated annual events, as recurrence rules
   fetchers/
@@ -196,6 +229,10 @@ is harmless; the next run re-scores everything once.
 ## Roadmap
 
 - Semantic search (ChromaDB) once there's enough data to search over
+- More than one image per event, which is what the carousel was built for.
+  Would mean fetching each event's own page for its gallery or og:image -
+  hundreds of requests per run against third-party ticketing sites, so it
+  needs rate limiting and caching before it's reasonable
 - Feed the ranker actual outcomes (what you went to) instead of only a
   written profile — the obvious next step, and the one that would let the
   ranking improve on its own

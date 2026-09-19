@@ -41,6 +41,11 @@ fi
   python3 -m sf_event_curator.cli fetch
   status=$?
 
+  # Resolve any new venues to coordinates for the map view. Capped per run
+  # because the geocoder is rate-limited; results are cached by place, so
+  # this is near-instant once the venue list has settled.
+  python3 -m sf_event_curator.cli geocode --limit "${GEOCODE_LIMIT:-80}"
+
   # Rank even if some fetchers failed - whatever did land is still worth
   # scoring, and the heuristic pass needs no network at all.
   python3 -m sf_event_curator.cli rank

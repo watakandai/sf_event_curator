@@ -62,6 +62,15 @@ jobs:
       - name: Fetch events
         run: python -m sf_event_curator.cli --db /tmp/events.db fetch
 
+      # Coordinates for the calendar's map view. Nominatim asks for no more
+      # than one request per second, so this is capped per run and cached in
+      # the database by place; a backlog is worked off over several runs
+      # rather than hammering a donated service in one go.
+      - name: Geocode venues for the map view
+        run: |
+          python -m sf_event_curator.cli --db /tmp/events.db geocode \
+            --limit ${{ vars.GEOCODE_LIMIT || 80 }}
+
       - name: Rank (heuristic, always runs)
         run: python -m sf_event_curator.cli --db /tmp/events.db rank
 
