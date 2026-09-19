@@ -156,6 +156,75 @@ Scores are cached by a hash of `profile.md` + model, so a weekly run only pays
 to score events it has never seen. **Editing `profile.md` re-ranks everything**
 on the next run - that's the point, but it isn't free.
 
+## Bay Area Adventure Club
+
+A way to invite friends without asking anyone directly. You pitch events in
+`docs/plans.json`, and friends tap **I'm in** on the site. Each pitch stays
+**Tentative** until `min` friends are in. Then it's **on**, and you make the
+Partiful. If the `deadline` passes before that, it shows as "didn't tip" and
+drops off once its date has passed.
+
+```json
+{
+  "club": "Bay Area Adventure Club",
+  "host": "Kandai",
+  "rsvp_url": "https://script.google.com/macros/s/.../exec",
+  "plans": [
+    { "event": "seasonal_bay_area:gray-whales-point-reyes:2026-12-15", "date": "2027-01-09",
+      "time": "09:30", "min": 3, "deadline": "2027-01-06", "note": "Carpool from the Mission" },
+    { "event": "annual_bay_area:mill-valley-film-festival:2026-10-08", "min": 2, "deadline": "2026-10-14",
+      "partiful": "https://partiful.com/e/..." },
+    { "title": "Bonfire at Ocean Beach", "date": "2026-10-03", "time": "18:00", "until": "21:00",
+      "venue": "Ocean Beach", "min": 4, "deadline": "2026-09-30" }
+  ]
+}
+```
+
+- `event` is the event's `key` (`source:source_id`) from `docs/data/events.json`.
+  Leave it out and give `title`, `date` and `venue` for something no feed lists.
+- `date`, `time` and `until` pin a day and time. A season needs this, since it
+  runs for months.
+- `min` is how many friends must say they're in. It defaults to 3, and 0 means
+  the plan is on regardless.
+- `deadline` is the last day to say you're in.
+- `partiful` is the Partiful link, once you've made it. Friends get a
+  **Copy Partiful link** button, on the plan and on the event's card.
+
+A plan's RSVPs are tied to its id: `event` plus `@date`, or a slug of the
+`title`. Changing either starts the count over. Set `"id"` to keep a fixed id.
+
+Pushing `docs/plans.json` publishes it straight away, with no workflow run
+needed. Only counts are shown on the site; who said yes stays in the sheet.
+
+**Host mode.** Open the site with `?host=1` (and `?host=0` to turn it off) to
+get these buttons:
+
+- **Send update to WhatsApp** opens WhatsApp with this week's pitches,
+  counts and deadlines already written. Pick the "Bay Area Adventure Club" group
+  and press send. WhatsApp has no API for posting to a personal group, so that
+  last tap is yours.
+- **Create Partiful**, on a plan that's on, copies its details and opens
+  partiful.com/create. Partiful has no API either.
+
+### Setting up the RSVP sheet (once, about 5 minutes)
+
+1. Create a Google Sheet and open **Extensions → Apps Script**.
+2. Replace `Code.gs` with [`apps_script/Code.gs`](apps_script/Code.gs) and save.
+3. Click **Deploy → New deployment**, choose type **Web app**, set
+   *Execute as* to **Me** and *Who has access* to **Anyone**, then Deploy.
+   Authorize it when asked. It needs the sheet, fetching the site, and sending
+   mail to you.
+4. Copy the web app URL (ending in `/exec`) into `rsvp_url` in
+   `docs/plans.json` and push.
+
+When a pitch reaches its minimum, the script emails the sheet's owner once.
+After editing `Code.gs`, deploy again: **Manage deployments → Edit → New
+version**, which keeps the same URL.
+
+The endpoint is public, like the site, so anyone who finds it could add a
+fake RSVP. That's fine among friends, and the sheet shows every row if
+something looks off.
+
 ## Layout
 
 ```
@@ -177,6 +246,8 @@ sf_event_curator/
   web.py               FastAPI app + REST API
   static/index.html    Dashboard frontend
 docs/index.html         Read-only static frontend (GitHub Pages)
+docs/plans.json         Adventure Club pitches, hand-edited
+apps_script/Code.gs     RSVP backend, pasted into a Google Sheet's Apps Script
 profile.md              Your background and taste, read by the LLM ranker
 profile.example.md      Template for the above
 deploy/                 systemd unit, nginx config, crontab example

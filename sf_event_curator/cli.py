@@ -165,7 +165,7 @@ def _cmd_list(args) -> None:
 EXPORT_FIELDS = (
     "id", "source", "title", "start_ts", "end_ts", "venue", "address",
     "cost", "is_free", "categories", "url", "description", "images",
-    "lat", "lon", "score", "score_reason", "scored_by", "date_approx",
+    "lat", "lon", "score", "score_reason", "scored_by", "date_approx", "key",
 )
 DESCRIPTION_LIMIT = 280
 
@@ -181,6 +181,10 @@ def _slim(event: dict) -> dict:
 def _cmd_export(args) -> None:
     today = date.today().isoformat()
     events = [row_to_dict(row) for row in query_events(args.db, order_by=args.sort)]
+    for e in events:
+        # What docs/plans.json names an event by. The id can't be used: it
+        # differs between the Actions cache and a local database.
+        e["key"] = f"{e['source']}:{e['source_id']}"
     total = len(events)
     if not args.include_past:
         # Undated events are kept: "date TBD" is upcoming until proven otherwise.

@@ -148,6 +148,31 @@
   .kind-chip .n { opacity: .7; font-variant-numeric: tabular-nums; margin-left: 3px; }
   .kind-reset { border: none; background: none; color: var(--muted); font-size: 12px; text-decoration: underline; padding: 4px 6px; }
   .day-cap { font-size: 12px; color: var(--muted); text-align: center; margin-top: 4px; }
+  /* --- Bay Area Adventure Club: pitches that happen once enough friends are in --- */
+  .club { background: #fff8f1; border: 1px solid #f3d3b8; border-radius: 12px; padding: 14px 16px; margin-bottom: 1.25rem; }
+  .club h2 { margin: 0 0 2px; font-size: 16px; }
+  .club-sub { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .club-empty { font-size: 13px; color: var(--muted); }
+  .host-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; font-size: 12px; color: var(--muted); }
+  .host-warn { color: var(--accent); }
+  .plan-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+  .plan { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+  .plan.off { opacity: .6; }
+  .plan-pill { display: inline-block; font-size: 11px; font-weight: 600; border-radius: 999px; padding: 2px 8px; }
+  .plan-pill.tentative, .badge.plan-tentative { background: #fff4e5; color: #92400e; }
+  .plan-pill.on, .badge.plan-on { background: #e5f6ea; color: #1e7e34; }
+  .plan-pill.off { background: #eee; color: var(--muted); }
+  .plan-title { font-weight: 600; margin: 6px 0 2px; }
+  .plan-note { font-size: 12px; margin-top: 4px; }
+  .plan-bar { height: 6px; background: #eee; border-radius: 3px; overflow: hidden; margin: 8px 0 4px; }
+  .plan-bar span { display: block; height: 100%; background: #f0a04b; }
+  .plan.on .plan-bar span { background: #2e9e4f; }
+  .plan-meta { font-size: 12px; color: var(--muted); }
+  .plan-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .plan-actions button { font-size: 12px; padding: 4px 10px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.done { background: #e5f6ea; border-color: #b7e0c3; color: #1e7e34; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); max-width: min(480px, calc(100vw - 32px)); background: #222; color: #fff; padding: 10px 14px; border-radius: 8px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.2); z-index: 2000; white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -157,6 +182,7 @@
 </header>
 <main>
   <div class="status" id="status">Loading...</div>
+  <section class="club" id="club" hidden></section>
   <div class="toolbar">
     <input type="text" id="searchBox" placeholder="Search title or venue..." oninput="resetPaging();render()">
     <label><input type="checkbox" id="freeOnly" onchange="resetPaging();render()"> Free only</label>
@@ -971,11 +997,394 @@ function cardHtml(e) {
         <div class="event-when">${when}</div>
       <div class="event-title">${escapeHtml(e.title)}</div>
       ${locationHtml(e)}
-      <div>${scoreBadge}${annualBadge}${approxBadge}${dothebayBadge}${freeBadge}${badges}</div>
+      <div>${planBadgeHtml(e)}${scoreBadge}${annualBadge}${approxBadge}${dothebayBadge}${freeBadge}${badges}</div>
       ${why}
       ${sourceLink}
+      ${planActionsHtml(e)}
     </div>
   `;
+}
+
+// --- Bay Area Adventure Club ---------------------------------------------
+// plans.json is the host's pitches. A pitch is tentative until `min` friends
+// say they're in; then it's on, and gets a Partiful. If the RSVP deadline
+// passes first it quietly didn't tip - nobody had to say no to anyone.
+// RSVPs live in a Google Sheet behind an Apps Script web app (rsvp_url; see
+// apps_script/Code.gs), which hands back counts only, never names.
+const DEFAULT_MIN = 3;
+const NAME_STORE = 'sfec.name.v1';
+const RSVP_STORE = 'sfec.rsvps.v1';
+const HOST_STORE = 'sfec.host.v1';
+let club = null;          // plans.json, minus the plans
+let clubPlans = [];       // resolved, soonest first
+let rsvpCounts = null;    // { planId: friends in }, null until loaded
+let planByEventId = {};
+const hostMode = readHostMode();
+
+function readHostMode() {
+  // ?host=1 turns on the host's buttons and remembers it; ?host=0 turns it off.
+  // It only changes what's shown - anyone could open it, and it grants nothing.
+  const flag = new URLSearchParams(location.search).get('host');
+  try {
+    if (flag === '1') localStorage.setItem(HOST_STORE, '1');
+    if (flag === '0') localStorage.removeItem(HOST_STORE);
+    return localStorage.getItem(HOST_STORE) === '1';
+  } catch (e) {
+    return flag === '1';
+  }
+}
+
+function readStore(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch (e) { return fallback; }
+}
+
+function writeStore(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* not critical */ }
+}
+
+// The same id rule as planId_() in apps_script/Code.gs - keep the two in step.
+function planId(p) {
+  if (p.id) return String(p.id);
+  const base = p.event || String(p.title || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return p.date ? `${base}@${p.date}` : base;
+}
+
+function localDay(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function resolvePlans(config, events) {
+  const byKey = {};
+  for (const e of events) if (e.key) byKey[e.key] = e;
+  const today = localDay(new Date());
+  const plans = [];
+  for (const p of config.plans || []) {
+    const event = p.event ? byKey[p.event] : null;
+    if (p.event && !event && !p.title) {
+      // Usually it just ended and left the export - or the key has a typo.
+      console.warn(`plans.json: no upcoming event with key ${p.event}`);
+      continue;
+    }
+    const e = event || {};
+    // A plan can pin a day and time, which a season needs: whale watching
+    // runs for months, and the plan is one Saturday of it.
+    let start = e.start_ts || '', end = e.end_ts || null;
+    if (p.date) { start = p.date + 'T00:00:00'; end = null; }
+    if (p.time && start) {
+      const day = p.date || localDay(new Date(start));
+      start = `${day}T${p.time}:00`;
+      end = p.until ? `${day}T${p.until}:00` : null;
+    }
+    if (!start) continue;
+    if (localDay(new Date(end || start)) < today) continue;
+    plans.push({
+      id: planId(p),
+      event_id: event ? e.id : null,
+      title: p.title || e.title,
+      start_ts: start,
+      end_ts: end,
+      date_approx: !p.date && !!e.date_approx,
+      venue: p.venue || e.venue || '',
+      address: p.address || e.address || '',
+      lat: p.venue || p.address ? null : e.lat,
+      lon: p.venue || p.address ? null : e.lon,
+      url: p.url || e.url || '',
+      description: e.description || '',
+      is_free: e.is_free, cost: e.cost,
+      note: p.note || '',
+      min: p.min == null ? DEFAULT_MIN : Number(p.min),
+      deadline: p.deadline || '',
+      partiful: p.partiful || '',
+    });
+  }
+  return plans.sort((a, b) => new Date(a.start_ts) - new Date(b.start_ts));
+}
+
+function planCount(p) {
+  return rsvpCounts ? (rsvpCounts[p.id] || 0) : null;
+}
+
+function planStatus(p) {
+  const n = planCount(p);
+  if (p.partiful || !p.min || (n != null && n >= p.min)) return 'on';
+  if (p.deadline && localDay(new Date()) > p.deadline) return 'off';
+  return 'tentative';
+}
+
+function rsvpOpen(p) {
+  return !!club.rsvp_url && !(p.deadline && localDay(new Date()) > p.deadline);
+}
+
+function deadlineText(p) {
+  return new Date(p.deadline + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+async function loadClub() {
+  try {
+    const res = await fetch('plans.json', { cache: 'no-cache' });
+    if (!res.ok) return;
+    const config = await res.json();
+    club = { club: config.club || 'Bay Area Adventure Club', host: config.host || '', rsvp_url: config.rsvp_url || '' };
+    clubPlans = resolvePlans(config, allEvents);
+  } catch (e) {
+    return;
+  }
+  planByEventId = {};
+  clubPlans.forEach((p, i) => { if (p.event_id != null) planByEventId[p.event_id] = i; });
+  renderClub();
+  render();
+  if (location.hash === '#club') document.getElementById('club').scrollIntoView();
+  if (club.rsvp_url && clubPlans.length) {
+    try {
+      const res = await fetch(club.rsvp_url);
+      rsvpCounts = (await res.json()).counts || {};
+    } catch (e) {
+      rsvpCounts = null;
+    }
+    renderClub();
+    render();
+  }
+}
+
+function renderClub() {
+  const section = document.getElementById('club');
+  if (!club || (!clubPlans.length && !hostMode)) { section.hidden = true; return; }
+  section.hidden = false;
+  const order = { on: 0, tentative: 1, off: 2 };
+  const shown = clubPlans.map((p, i) => [p, i])
+    .sort((a, b) => order[planStatus(a[0])] - order[planStatus(b[0])]);
+  const host = hostMode ? `<div class="host-bar">
+      <button type="button" onclick="shareUpdate()">Send update to WhatsApp</button>
+      <button type="button" onclick="copyUpdate()">Copy update</button>
+      <span>Host mode</span>
+      ${club.rsvp_url ? '' : '<span class="host-warn">No rsvp_url in plans.json yet, so nobody can say they\'re in.</span>'}
+    </div>` : '';
+  section.innerHTML = `
+    <h2>🥾 ${escapeHtml(club.club)}</h2>
+    <div class="club-sub">${escapeHtml(club.host || 'I')} pitches, you say if you're in. Once enough people are, it's on.</div>
+    ${host}
+    ${shown.length
+      ? `<div class="plan-list">${shown.map(([p, i]) => planHtml(p, i)).join('')}</div>`
+      : '<div class="club-empty">No pitches yet. Add one to docs/plans.json.</div>'}`;
+}
+
+function planHtml(p, i) {
+  const status = planStatus(p);
+  const n = planCount(p);
+  const pill = { on: "It's on 🎉", tentative: 'Tentative', off: "Didn't tip" }[status];
+  const count = n == null ? ''
+    : !p.min ? `${n} in`
+    : n >= p.min ? `${n} in · needed ${p.min}`
+    : `${n} of ${p.min} in`;
+  const bar = n != null && p.min
+    ? `<div class="plan-bar"><span style="width:${Math.min(100, Math.round(100 * n / p.min))}%"></span></div>`
+    : '';
+  const meta = status === 'off'
+    ? `Needed ${p.min} by ${deadlineText(p)}. Maybe next time.`
+    : [count, p.deadline ? `RSVP by ${deadlineText(p)}` : ''].filter(Boolean).join(' · ');
+  const mine = readStore(RSVP_STORE, {})[p.id];
+  const actions = [];
+  if (rsvpOpen(p) && status !== 'off') {
+    actions.push(mine
+      ? `<button type="button" class="done" onclick="rsvp(${i}, false)" title="Tap to take it back">You're in ✓</button>`
+      : `<button type="button" class="primary" onclick="rsvp(${i}, true)">I'm in</button>`);
+  }
+  if (status === 'on' && p.partiful) {
+    actions.push(`<button type="button" onclick="copyPartiful(${i}, this)">Copy Partiful link</button>`,
+      `<button type="button" onclick="openPlanLink(${i}, 'partiful')">Open Partiful ↗</button>`);
+  } else if (status === 'on' && hostMode) {
+    actions.push(`<button type="button" onclick="createPartiful(${i})" title="Copies the details and opens Partiful">Create Partiful</button>`);
+  }
+  if (p.url) actions.push(`<button type="button" onclick="openPlanLink(${i}, 'url')">Details ↗</button>`);
+  return `<div class="plan ${status}">
+    <span class="plan-pill ${status}">${pill}</span>
+    <div class="plan-title">${escapeHtml(p.title)}</div>
+    <div class="event-when">${formatWhen(p)}</div>
+    ${locationHtml(p)}
+    ${p.note ? `<div class="plan-note">${escapeHtml(p.note)}</div>` : ''}
+    ${bar}
+    <div class="plan-meta">${escapeHtml(meta)}</div>
+    ${actions.length ? `<div class="plan-actions">${actions.join('')}</div>` : ''}
+  </div>`;
+}
+
+// On an event card: whether it's been pitched, and the Partiful once it's on.
+function planBadgeHtml(e) {
+  const i = planByEventId[e.id];
+  if (i == null) return '';
+  const status = planStatus(clubPlans[i]);
+  if (status === 'off') return '';
+  return status === 'on'
+    ? '<span class="badge plan-on">It\'s on 🎉</span>'
+    : '<span class="badge plan-tentative">Pitched</span>';
+}
+
+function planActionsHtml(e) {
+  const i = planByEventId[e.id];
+  if (i == null) return '';
+  const p = clubPlans[i];
+  if (planStatus(p) !== 'on' || !p.partiful) return '';
+  return `<div class="plan-actions"><button type="button" onclick="copyPartiful(${i}, this)">Copy Partiful link</button></div>`;
+}
+
+async function rsvp(i, going) {
+  const p = clubPlans[i];
+  let name = readStore(NAME_STORE, '');
+  if (going && !name) {
+    name = (prompt(`You're in for ${p.title}! What's your name, so ${club.host || 'the host'} knows who's coming?`) || '').trim();
+    if (!name) return;
+    writeStore(NAME_STORE, name);
+  }
+  try {
+    // text/plain keeps it a "simple" request, which Apps Script can answer
+    // without a CORS preflight it doesn't support.
+    const res = await fetch(club.rsvp_url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ plan: p.id, name, going }),
+    });
+    const data = await res.json();
+    if (data.error) { showToast(data.error); return; }
+    rsvpCounts = data.counts || rsvpCounts;
+    const mine = readStore(RSVP_STORE, {});
+    if (going) mine[p.id] = true; else delete mine[p.id];
+    writeStore(RSVP_STORE, mine);
+    renderClub();
+    render();
+    const n = planCount(p);
+    showToast(!going ? "Okay, you're out."
+      : n >= p.min ? `You're in, and that makes ${n}. It's on! 🎉`
+      : `You're in! ${p.min - n} more and it's on.`);
+  } catch (err) {
+    showToast("Couldn't reach the RSVP sheet. Try again in a minute.");
+  }
+}
+
+function copyPartiful(i, button) {
+  copyText(clubPlans[i].partiful).then(() => flashCopied(button, 'Copy Partiful link'))
+    .catch(() => showToast(clubPlans[i].partiful, 15000));
+}
+
+function createPartiful(i) {
+  const p = clubPlans[i];
+  const text = planDetails(p, false).join('\n');
+  copyText(text).catch(() => {});
+  window.open('https://partiful.com/create', '_blank', 'noopener');
+  showToast('Details copied - paste them into Partiful. Then put its link in "partiful" for this plan in docs/plans.json.', 8000);
+}
+
+function openPlanLink(i, field) {
+  window.open(clubPlans[i][field], '_blank', 'noopener');
+}
+
+function flashCopied(button, label) {
+  button.textContent = '✓ Copied';
+  setTimeout(() => { button.textContent = label; }, 2000);
+}
+
+// --- the WhatsApp update ---------------------------------------------------
+function planDate(p) {
+  const start = new Date(p.start_ts);
+  const opts = { weekday: 'short', month: 'short', day: 'numeric' };
+  let text = start.toLocaleDateString('en-US', opts);
+  if (p.end_ts && localDay(new Date(p.end_ts)) !== localDay(start)) {
+    text += ' – ' + new Date(p.end_ts).toLocaleDateString('en-US', opts);
+  }
+  if (start.getHours() || start.getMinutes()) {
+    text += ' · ' + start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    if (p.end_ts && localDay(new Date(p.end_ts)) === localDay(start)) {
+      text += ' – ' + new Date(p.end_ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    }
+  }
+  return p.date_approx ? `${text} (usual dates, to be confirmed)` : text;
+}
+
+function planPlace(p) {
+  const venue = p.venue.trim(), address = p.address.trim();
+  if (!address || venue.includes(address)) return venue;
+  if (!venue || address.includes(venue)) return address;
+  return `${venue}, ${address}`;
+}
+
+function planDetails(p, chat) {
+  const b = s => chat ? `*${s}*` : s;
+  const lines = [b(p.title)];
+  const about = (p.description || '').replace(/\s+/g, ' ').trim();
+  if (!chat && about) lines.push(about);
+  lines.push(`📅 ${planDate(p)}`);
+  const place = planPlace(p);
+  if (place) lines.push(`📍 ${place}`);
+  if (p.note) lines.push(`📝 ${p.note}`);
+  if (p.url) lines.push(`ℹ️ ${p.url}`);
+  return lines;
+}
+
+function updateText() {
+  const site = location.origin + location.pathname;
+  const blocks = [`🥾 *${club.club}*\nSay you're in: ${site}#club`];
+  const on = clubPlans.filter(p => planStatus(p) === 'on');
+  const tentative = clubPlans.filter(p => planStatus(p) === 'tentative');
+  for (const p of on) {
+    const n = planCount(p);
+    const lines = planDetails(p, true);
+    lines[0] = `✅ It's on: ${lines[0]}`;
+    if (n != null) lines.push(`👥 ${n} in${p.min ? ` (needed ${p.min})` : ''}`);
+    if (p.partiful) lines.push(`🎟 RSVP on Partiful: ${p.partiful}`);
+    blocks.push(lines.join('\n'));
+  }
+  for (const p of tentative) {
+    const n = planCount(p);
+    const lines = planDetails(p, true);
+    lines[0] = `⏳ Tentative: ${lines[0]}`;
+    lines.push(`👥 ${n == null ? '?' : n} of ${p.min} in` + (p.deadline ? ` · RSVP by ${deadlineText(p)}` : ''));
+    blocks.push(lines.join('\n'));
+  }
+  if (!on.length && !tentative.length) blocks.push('Nothing pitched right now - ideas welcome!');
+  return blocks.join('\n\n');
+}
+
+function shareUpdate() {
+  // WhatsApp has no API for posting to a personal group: this opens it with
+  // the update written, and you pick the group and press send.
+  window.open('https://wa.me/?text=' + encodeURIComponent(updateText()), '_blank', 'noopener');
+}
+
+function copyUpdate() {
+  copyText(updateText()).then(() => showToast('Update copied.'))
+    .catch(() => showToast(updateText(), 20000));
+}
+
+function copyText(text) {
+  // A synchronous copy first: it still counts as part of the click, which
+  // the async clipboard API can lose once another tab takes focus.
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+  area.remove();
+  if (ok) return Promise.resolve();
+  return navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject(new Error('no clipboard'));
+}
+
+let toastTimer = null;
+function showToast(message, ms) {
+  let toast = document.getElementById('toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'toast';
+    toast.className = 'toast';
+    toast.setAttribute('role', 'status');
+    document.body.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toast.hidden = true; }, ms || 4000);
 }
 
 function escapeHtml(s) {
@@ -983,7 +1392,7 @@ function escapeHtml(s) {
 }
 
 initSelectionHandlers();
-loadEvents();
+loadEvents().then(loadClub);
 </script>
 </body>
 </html>

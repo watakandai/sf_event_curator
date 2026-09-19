@@ -409,3 +409,21 @@ def test_heuristic_pass_leaves_llm_scores_alone(tmp_path, fake_network,
     rows = query_events(db_path)
     assert {r["scored_by"] for r in rows} == {"stub:stub-model"}
     assert all(r["score"] == 90 for r in rows)
+
+
+def test_export_gives_each_event_a_stable_key(tmp_path):
+    """docs/plans.json pitches an event by source:source_id, not the db id."""
+    import json
+    from datetime import date, datetime, timedelta
+
+    from sf_event_curator.models import Event
+
+    db_path = tmp_path / "events.db"
+    out_path = tmp_path / "events.json"
+    init_db(db_path)
+    day = datetime.combine(date.today() + timedelta(days=5), datetime.min.time())
+    upsert_events(db_path, [Event("funcheap_sf", "abc", "Pumpkin Festival", day, day)])
+    run_cli(["--db", str(db_path), "export", "--out", str(out_path)])
+
+    [event] = json.loads(out_path.read_text())
+    assert event["key"] == "funcheap_sf:abc"
