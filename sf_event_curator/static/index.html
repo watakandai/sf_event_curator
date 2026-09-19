@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SF Event Curator</title>
 <style>
   :root { --border:#e2e2e2; --accent:#c0392b; --bg:#fafafa; --card:#fff; --text:#222; --muted:#777; }
@@ -36,6 +37,29 @@
   .field textarea { resize: vertical; min-height: 50px; }
   .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
   .empty { color: var(--muted); font-size: 14px; padding: 2rem 0; text-align: center; }
+  .view-toggle { margin-left: auto; display: flex; gap: 6px; }
+  .calendar-nav { display: flex; align-items: center; justify-content: center; gap: 16px; margin-bottom: 12px; }
+  .calendar-nav h2 { margin: 0; font-size: 16px; min-width: 170px; text-align: center; }
+  .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin-bottom: 1.25rem; }
+  .cal-dow { font-size: 11px; color: var(--muted); text-align: center; padding: 4px 0; text-transform: uppercase; }
+  .cal-day { min-height: 74px; border: 1px solid var(--border); border-radius: 6px; padding: 4px; font-size: 11px; background: var(--card); cursor: pointer; }
+  .cal-blank { min-height: 74px; }
+  .cal-day.today { border-color: var(--accent); border-width: 2px; }
+  .cal-day.selected { background: #fff3f0; border-color: var(--accent); }
+  .cal-day-num { font-weight: 600; margin-bottom: 3px; }
+  .cal-event-chip { background: #eee; border-radius: 3px; padding: 1px 4px; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cal-event-chip.free { background: #e5f6ea; }
+  .cal-more { font-size: 10px; color: var(--muted); }
+  .day-detail h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; margin-bottom: 8px; }
+  .undated-note { font-size: 12px; color: var(--muted); margin-bottom: 1rem; }
+  .cal-count { display: none; }
+  @media (max-width: 640px) {
+    .cal-day, .cal-blank { min-height: 56px; }
+    /* Too narrow for titles: show just a count per day, tap for the detail. */
+    .cal-event-chip, .cal-more { display: none; }
+    .cal-count { display: block; font-size: 10px; color: var(--muted); }
+    .view-toggle { margin-left: 0; }
+  }
 </style>
 </head>
 <body>
@@ -48,6 +72,10 @@
     <input type="text" id="searchBox" placeholder="Search title or venue..." oninput="render()">
     <input type="text" id="categoryBox" placeholder="Category contains..." oninput="render()">
     <label><input type="checkbox" id="freeOnly" onchange="render()"> Free only</label>
+    <div class="view-toggle">
+      <button id="listBtn" class="primary" onclick="switchView('list')">List</button>
+      <button id="calBtn" onclick="switchView('calendar')">Calendar</button>
+    </div>
     <button onclick="loadEvents()">Refresh</button>
   </div>
   <div id="results"></div>
@@ -75,25 +103,40 @@
 
 <script>
 let allEvents = [];
+let viewMode = 'list';
+let calYear, calMonth;   // month the calendar grid is showing
+let selectedDay = null;  // 'YYYY-MM-DD' for the day-detail panel
 
 async function loadEvents() {
   const res = await fetch('/api/events');
   allEvents = await res.json();
+  initCalendarPosition();
   render();
 }
 
-function render() {
+function getFilteredEvents() {
   const search = document.getElementById('searchBox').value.toLowerCase();
   const category = document.getElementById('categoryBox').value.toLowerCase();
   const freeOnly = document.getElementById('freeOnly').checked;
 
-  let filtered = allEvents.filter(e => {
+  return allEvents.filter(e => {
     if (freeOnly && !e.is_free) return false;
     if (category && !e.categories.join(',').toLowerCase().includes(category)) return false;
     if (search && !(e.title.toLowerCase().includes(search) || e.venue.toLowerCase().includes(search))) return false;
     return true;
   });
+}
 
+function render() {
+  const filtered = getFilteredEvents();
+  if (viewMode === 'calendar') {
+    renderCalendarView(filtered);
+  } else {
+    renderListView(filtered);
+  }
+}
+
+function renderListView(filtered) {
   const groups = {};
   for (const e of filtered) {
     const key = e.start_ts ? e.start_ts.slice(0, 7) : 'Undated';
@@ -113,6 +156,112 @@ function render() {
       ${groups[key].map(cardHtml).join('')}
     </div>
   `).join('');
+}
+
+function initCalendarPosition() {
+  // Open the calendar on the month of the earliest event, not today's month -
+  // the export can lead or lag the current date.
+  const dated = allEvents.filter(e => e.start_ts).map(e => e.start_ts).sort();
+  const ref = dated.length ? new Date(dated[0]) : new Date();
+  calYear = ref.getFullYear();
+  calMonth = ref.getMonth();
+}
+
+function switchView(mode) {
+  viewMode = mode;
+  document.getElementById('listBtn').classList.toggle('primary', mode === 'list');
+  document.getElementById('calBtn').classList.toggle('primary', mode === 'calendar');
+  render();
+}
+
+function changeMonth(delta) {
+  calMonth += delta;
+  if (calMonth < 0) { calMonth = 11; calYear--; }
+  if (calMonth > 11) { calMonth = 0; calYear++; }
+  selectedDay = null;
+  render();
+}
+
+function goToday() {
+  const d = new Date();
+  calYear = d.getFullYear();
+  calMonth = d.getMonth();
+  selectedDay = dateKey(d);
+  render();
+}
+
+function selectDay(key) {
+  selectedDay = (selectedDay === key) ? null : key;
+  render();
+}
+
+function dateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function renderCalendarView(filtered) {
+  const byDay = {};
+  let undated = 0;
+  for (const e of filtered) {
+    if (!e.start_ts) { undated++; continue; }
+    const key = e.start_ts.slice(0, 10);
+    (byDay[key] = byDay[key] || []).push(e);
+  }
+  for (const k of Object.keys(byDay)) {
+    byDay[k].sort((a, b) => a.start_ts.localeCompare(b.start_ts));
+  }
+
+  const monthName = new Date(calYear, calMonth, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+  const firstWeekday = new Date(calYear, calMonth, 1).getDay();
+  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+  const todayKey = dateKey(new Date());
+  const dows = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  let cells = '';
+  for (let i = 0; i < firstWeekday; i++) cells += '<div class="cal-blank"></div>';
+  for (let day = 1; day <= daysInMonth; day++) {
+    const key = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const dayEvents = byDay[key] || [];
+    const classes = ['cal-day'];
+    if (key === todayKey) classes.push('today');
+    if (key === selectedDay) classes.push('selected');
+    const chips = dayEvents.slice(0, 2).map(e =>
+      `<div class="cal-event-chip${e.is_free ? ' free' : ''}">${escapeHtml(e.title)}</div>`
+    ).join('');
+    const more = dayEvents.length > 2 ? `<div class="cal-more">+${dayEvents.length - 2} more</div>` : '';
+    const count = dayEvents.length
+      ? `<div class="cal-count">${dayEvents.length} event${dayEvents.length === 1 ? '' : 's'}</div>`
+      : '';
+    cells += `<div class="${classes.join(' ')}" onclick="selectDay('${key}')">`
+      + `<div class="cal-day-num">${day}</div>${chips}${more}${count}</div>`;
+  }
+
+  const detailEvents = selectedDay ? (byDay[selectedDay] || []) : [];
+  const detailLabel = selectedDay
+    ? new Date(selectedDay + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+    : null;
+  const undatedNote = undated
+    ? `<div class="undated-note">${undated} undated event${undated === 1 ? '' : 's'} cannot be placed on the grid - switch to List view to see ${undated === 1 ? 'it' : 'them'} under &ldquo;Undated&rdquo;.</div>`
+    : '';
+
+  document.getElementById('results').innerHTML = `
+    <div class="calendar-nav">
+      <button onclick="changeMonth(-1)">&lsaquo; Prev</button>
+      <h2>${monthName}</h2>
+      <button onclick="changeMonth(1)">Next &rsaquo;</button>
+      <button onclick="goToday()">Today</button>
+    </div>
+    <div class="calendar-grid">
+      ${dows.map(d => `<div class="cal-dow">${d}</div>`).join('')}
+      ${cells}
+    </div>
+    ${undatedNote}
+    <div class="day-detail">
+      ${selectedDay
+        ? `<h3>${detailLabel}</h3>` + (detailEvents.length ? detailEvents.map(cardHtml).join('') : '<div class="empty">No events this day.</div>')
+        : '<div class="empty">Click a day to see its events.</div>'}
+    </div>
+  `;
 }
 
 function monthLabel(key) {
