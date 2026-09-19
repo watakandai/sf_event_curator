@@ -60,6 +60,12 @@
     .cal-count { display: block; font-size: 10px; color: var(--muted); }
     .view-toggle { margin-left: 0; }
   }
+  .badge.score { background: #efe7ff; color: #5b21b6; font-variant-numeric: tabular-nums; }
+  .badge.approx { background: #fff4e5; color: #92400e; }
+  .badge.annual { background: #fff8e1; color: #8a6d00; }
+  .event-why { font-size: 12px; color: var(--muted); margin-top: 4px; font-style: italic; }
+  .toolbar select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; background: var(--card); color: var(--text); }
+  .rank-note { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
 </style>
 </head>
 <body>
@@ -72,6 +78,10 @@
     <input type="text" id="searchBox" placeholder="Search title or venue..." oninput="render()">
     <input type="text" id="categoryBox" placeholder="Category contains..." oninput="render()">
     <label><input type="checkbox" id="freeOnly" onchange="render()"> Free only</label>
+    <select id="sortBy" onchange="render()" aria-label="Sort order">
+      <option value="score">Sort: best match</option>
+      <option value="date">Sort: soonest first</option>
+    </select>
     <div class="view-toggle">
       <button id="listBtn" class="primary" onclick="switchView('list')">List</button>
       <button id="calBtn" onclick="switchView('calendar')">Calendar</button>
@@ -136,7 +146,37 @@ function render() {
   }
 }
 
+function currentSort() {
+  const el = document.getElementById('sortBy');
+  return el ? el.value : 'date';
+}
+
 function renderListView(filtered) {
+  if (currentSort() === 'score') {
+    renderRankedList(filtered);
+    return;
+  }
+  renderGroupedList(filtered);
+}
+
+function renderRankedList(filtered) {
+  // Scored events first, best down; anything the ranker hasn't seen yet
+  // trails behind in date order rather than vanishing.
+  const scored = filtered.filter(e => e.score != null).sort((a, b) => b.score - a.score);
+  const unscored = filtered.filter(e => e.score == null)
+    .sort((a, b) => (a.start_ts || '').localeCompare(b.start_ts || ''));
+  const container = document.getElementById('results');
+  if (!scored.length && !unscored.length) {
+    container.innerHTML = '<div class="empty">No events match. Try clearing filters or add one.</div>';
+    return;
+  }
+  const note = scored.length
+    ? `<div class="rank-note">Ranked by how well each event matches profile.md${unscored.length ? ` - ${unscored.length} not yet ranked, listed after` : ''}.</div>`
+    : '<div class="rank-note">Nothing is ranked yet - run <code>cli rank</code>.</div>';
+  container.innerHTML = note + scored.concat(unscored).map(cardHtml).join('');
+}
+
+function renderGroupedList(filtered) {
   const groups = {};
   for (const e of filtered) {
     const key = e.start_ts ? e.start_ts.slice(0, 7) : 'Undated';
@@ -222,10 +262,11 @@ function renderCalendarView(filtered) {
   for (let day = 1; day <= daysInMonth; day++) {
     const key = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const dayEvents = byDay[key] || [];
+    const byRank = dayEvents.slice().sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
     const classes = ['cal-day'];
     if (key === todayKey) classes.push('today');
     if (key === selectedDay) classes.push('selected');
-    const chips = dayEvents.slice(0, 2).map(e =>
+    const chips = byRank.slice(0, 2).map(e =>
       `<div class="cal-event-chip${e.is_free ? ' free' : ''}">${escapeHtml(e.title)}</div>`
     ).join('');
     const more = dayEvents.length > 2 ? `<div class="cal-more">+${dayEvents.length - 2} more</div>` : '';
@@ -264,6 +305,20 @@ function renderCalendarView(filtered) {
   `;
 }
 
+function formatWhen(e) {
+  if (!e.start_ts) return 'Date TBD';
+  const d = new Date(e.start_ts);
+  // Sources differ on whether they carry a time at all: the annual list and
+  // DoTheBay are date-only, so their midnight timestamps would otherwise all
+  // render as a confident, wrong "12:00 AM".
+  const dateOnly = d.getHours() === 0 && d.getMinutes() === 0;
+  const opts = dateOnly
+    ? { weekday: 'short', month: 'short', day: 'numeric' }
+    : { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+  const text = d.toLocaleString('en-US', opts);
+  return e.date_approx ? `~ ${text}` : text;
+}
+
 function monthLabel(key) {
   if (key === 'Undated') return 'Undated';
   const [y, m] = key.split('-');
@@ -272,18 +327,25 @@ function monthLabel(key) {
 }
 
 function cardHtml(e) {
-  const when = e.start_ts ? new Date(e.start_ts).toLocaleString('en-US', {
-    weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
-  }) : 'Date TBD';
+  const when = formatWhen(e);
   const badges = e.categories.slice(0, 3).map(c => `<span class="badge">${escapeHtml(c)}</span>`).join('');
   const freeBadge = e.is_free ? '<span class="badge free">Free</span>' : '';
+  const scoreBadge = e.score != null
+    ? `<span class="badge score" title="${escapeHtml(e.score_reason || '')}">${Math.round(e.score)}</span>`
+    : '';
+  const approxBadge = e.date_approx
+    ? '<span class="badge approx" title="Follows a typical-year rule, not an announced date - confirm before making plans">date approx</span>'
+    : '';
+  const annualBadge = e.source === 'annual_bay_area' ? '<span class="badge annual">Annual</span>' : '';
+  const why = e.score_reason ? `<div class="event-why">${escapeHtml(e.score_reason)}</div>` : '';
   return `
     <div class="event-card">
       <div class="event-main">
         <div class="event-date">${when}</div>
         <div class="event-title">${escapeHtml(e.title)}</div>
         <div class="event-meta">${escapeHtml(e.venue || '')}</div>
-        <div>${freeBadge}${badges}</div>
+        <div>${scoreBadge}${annualBadge}${approxBadge}${freeBadge}${badges}</div>
+        ${why}
       </div>
       <div class="event-actions">
         <button class="small" onclick="openEditDialog(${e.id})">Edit</button>
