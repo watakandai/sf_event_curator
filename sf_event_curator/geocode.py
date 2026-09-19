@@ -52,17 +52,31 @@ TRAILING_CITY_RE = re.compile(r"^(?P<place>.*?)\s*\((?P<city>[^)]+)\)\s*$")
 UNRESOLVABLE = {"", "tba", "tbd", "secret location", "various", "citywide"}
 
 
+HAS_STREET_NUMBER_RE = re.compile(r"\d")
+
+
 def place_key(venue: str, address: str) -> str:
     """Cache key for an event's location: the most specific text available.
 
-    Address wins over venue when both exist, because a street address
-    geocodes far more reliably than a venue name.
+    A real street address wins outright - it geocodes far more reliably than
+    a venue name. But several sources put only a CITY in the address field,
+    and treating that as the answer collapsed every event in a city onto its
+    centroid: 36 annual events, Golden Gate Park and Ocean Beach among them,
+    all landed on the same point in downtown San Francisco. When the address
+    carries no street number, the venue is the specific part and the address
+    is the disambiguator, so they're combined.
     """
     venue = (venue or "").strip()
     address = (address or "").strip()
-    if address and not address.startswith("("):
+    if address.startswith("("):
+        address = ""  # 19hz writes "(City)" with no street address
+    if not address:
+        return venue
+    if not venue or HAS_STREET_NUMBER_RE.search(address):
         return address
-    return venue
+    if venue.lower() in address.lower():
+        return address
+    return f"{venue}, {address}"
 
 
 def query_for(place: str) -> str | None:

@@ -20,6 +20,27 @@ def test_parenthesised_city_only_address_falls_back_to_venue():
     assert geocode.place_key("Moe's Alley", "(Santa Cruz)") == "Moe's Alley"
 
 
+def test_a_bare_city_address_is_combined_with_the_venue():
+    """Several sources put only a city in the address field.
+
+    Treating that as the answer collapsed every event in a city onto its
+    centroid - Golden Gate Park and Ocean Beach both landed downtown.
+    """
+    assert geocode.place_key("Golden Gate Park", "San Francisco") == \
+        "Golden Gate Park, San Francisco"
+    assert geocode.place_key("Folsom Street, SoMa", "San Francisco") == \
+        "Folsom Street, SoMa, San Francisco"
+
+
+def test_a_street_address_is_still_used_alone():
+    assert geocode.place_key("Fox Theater", "1807 Telegraph Ave, Oakland, CA") == \
+        "1807 Telegraph Ave, Oakland, CA"
+
+
+def test_venue_already_inside_the_address_is_not_repeated():
+    assert geocode.place_key("Oakland", "Oakland") == "Oakland"
+
+
 def test_no_location_at_all_yields_an_empty_key():
     assert geocode.place_key("", "") == ""
 
