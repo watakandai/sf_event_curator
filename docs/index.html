@@ -1192,7 +1192,7 @@ function planHtml(p, i) {
   if (status === 'on' && p.partiful) {
     actions.push(`<button type="button" onclick="copyPartiful(${i}, this)">Copy Partiful link</button>`,
       `<button type="button" onclick="openPlanLink(${i}, 'partiful')">Open Partiful ↗</button>`);
-  } else if (status === 'on' && hostMode) {
+  } else if (hostMode) {
     actions.push(`<button type="button" onclick="createPartiful(${i})" title="Copies the details and opens Partiful">Create Partiful</button>`);
   }
   if (p.url) actions.push(`<button type="button" onclick="openPlanLink(${i}, 'url')">Details ↗</button>`);
