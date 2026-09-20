@@ -1119,7 +1119,16 @@ function deadlineText(p) {
   return new Date(p.deadline + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
+function showClubPlans() {
+  const params = new URLSearchParams(location.search);
+  return params.has('plan');
+}
+
 async function loadClub() {
+  if (!showClubPlans()) {
+    document.getElementById('club').hidden = true;
+    return;
+  }
   try {
     const res = await fetch('plans.json', { cache: 'no-cache' });
     if (!res.ok) return;
