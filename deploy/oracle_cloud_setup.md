@@ -82,19 +82,19 @@ private GitHub repo from your machine, then on the instance:
 
 ```bash
 sudo apt-get update && sudo apt-get install -y git python3-venv python3-pip
-git clone git@github.com:<you>/sf_event_curator.git
-cd sf_event_curator
+git clone git@github.com:<you>/sfevents.git
+cd sfevents
 ```
 
 Faster right now, since you already have the project as zip files locally:
 
 ```bash
 # from your local machine
-scp sf_event_curator_project.zip ubuntu@<public-ip>:~
+scp sfevents_project.zip ubuntu@<public-ip>:~
 # on the instance
 sudo apt-get update && sudo apt-get install -y unzip python3-venv python3-pip
-unzip sf_event_curator_project.zip
-cd sf_event_curator
+unzip sfevents_project.zip
+cd sfevents
 ```
 
 Either way, then:
@@ -161,19 +161,19 @@ HTTPS rather than just Basic Auth over plaintext.
 
 ## 5. Install the dashboard as a systemd service
 
-Reuse `deploy/sf-event-curator.service` from before - the placeholders
+Reuse `deploy/sfevents.service` from before - the placeholders
 just need Oracle-specific values now:
 
 ```bash
-# edit deploy/sf-event-curator.service:
+# edit deploy/sfevents.service:
 #   <YOUR_USER>    -> ubuntu
-#   <PROJECT_DIR>  -> /home/ubuntu/sf_event_curator
-#   <VENV_PYTHON>  -> /home/ubuntu/sf_event_curator/.venv/bin/python3
+#   <PROJECT_DIR>  -> /home/ubuntu/sfevents
+#   <VENV_PYTHON>  -> /home/ubuntu/sfevents/.venv/bin/python3
 
-sudo cp deploy/sf-event-curator.service /etc/systemd/system/
+sudo cp deploy/sfevents.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now sf-event-curator
-sudo systemctl status sf-event-curator   # confirm Active: running
+sudo systemctl enable --now sfevents
+sudo systemctl status sfevents   # confirm Active: running
 curl http://127.0.0.1:8000/              # confirm it responds locally
 ```
 
@@ -188,7 +188,7 @@ Same as the local self-hosting setup, just with Oracle's paths:
 chmod +x scripts/weekly_fetch.sh
 crontab -e
 # paste the line from deploy/crontab.txt, with <YOUR_USER> -> ubuntu and
-# the path updated to /home/ubuntu/sf_event_curator/scripts/weekly_fetch.sh
+# the path updated to /home/ubuntu/sfevents/scripts/weekly_fetch.sh
 ```
 
 ## 7. Verify end to end

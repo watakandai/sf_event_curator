@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Weekly fetch job for sf_event_curator. Intended to run from cron.
+# Weekly fetch job for sfevents. Intended to run from cron.
 #
 # What it does: activates the project's venv (if present), runs `cli fetch`
 # then `cli rank` against the DB the dashboard reads from, and appends a
@@ -24,7 +24,7 @@
 set -uo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LOG_DIR="${HOME}/.sf_event_curator"
+LOG_DIR="${HOME}/.sfevents"
 LOG_FILE="${LOG_DIR}/fetch.log"
 
 mkdir -p "$LOG_DIR"
@@ -38,20 +38,20 @@ fi
 
 {
   echo "=== $(date -Iseconds) starting weekly fetch ==="
-  python3 -m sf_event_curator.cli fetch
+  python3 -m sfevents.cli fetch
   status=$?
 
   # Resolve any new venues to coordinates for the map view. Capped per run
   # because the geocoder is rate-limited; results are cached by place, so
   # this is near-instant once the venue list has settled.
-  python3 -m sf_event_curator.cli geocode --limit "${GEOCODE_LIMIT:-80}"
+  python3 -m sfevents.cli geocode --limit "${GEOCODE_LIMIT:-80}"
 
   # Rank even if some fetchers failed - whatever did land is still worth
   # scoring, and the heuristic pass needs no network at all.
-  python3 -m sf_event_curator.cli rank
+  python3 -m sfevents.cli rank
   if [ -n "${RANKER_PROVIDER:-}" ]; then
     echo "--- LLM ranking via ${RANKER_PROVIDER} ---"
-    python3 -m sf_event_curator.cli rank --llm --provider "$RANKER_PROVIDER"
+    python3 -m sfevents.cli rank --llm --provider "$RANKER_PROVIDER"
   else
     echo "--- RANKER_PROVIDER unset: heuristic scores only ---"
   fi

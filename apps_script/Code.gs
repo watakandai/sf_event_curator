@@ -16,7 +16,7 @@
 
 // The published site. plans.json is read from here to check that a plan
 // exists, what its minimum is and whether its RSVP deadline has passed.
-const SITE = 'https://watakandai.github.io/sf_event_curator/';
+const SITE = 'https://watakandai.github.io/sfevents/';
 const SHEET_NAME = 'rsvps';
 const TZ = 'America/Los_Angeles';
 const DEFAULT_MIN = 3;

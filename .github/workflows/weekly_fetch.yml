@@ -71,7 +71,7 @@ jobs:
           restore-keys: events-db-
 
       - name: Fetch events
-        run: python -m sf_event_curator.cli --db /tmp/events.db fetch
+        run: python -m sfevents.cli --db /tmp/events.db fetch
 
       # Coordinates for the calendar's map view. Nominatim asks for no more
       # than one request per second, so this is capped per run and cached in
@@ -79,7 +79,7 @@ jobs:
       # rather than hammering a donated service in one go.
       - name: Geocode venues for the map view
         run: |
-          python -m sf_event_curator.cli --db /tmp/events.db geocode \
+          python -m sfevents.cli --db /tmp/events.db geocode \
             --limit ${{ vars.GEOCODE_LIMIT || 80 }}
 
       # Which provider to use is explicit: set the RANKER_PROVIDER repo
@@ -107,7 +107,7 @@ jobs:
       # would only compute the same scores twice.
       - name: Rank (heuristic only)
         if: steps.ranker.outputs.provider == ''
-        run: python -m sf_event_curator.cli --db /tmp/events.db rank
+        run: python -m sfevents.cli --db /tmp/events.db rank
 
       - name: Rank against profile.md with an LLM
         if: steps.ranker.outputs.provider != ''
@@ -133,11 +133,11 @@ jobs:
             esac
             args+=(--limit "$LIMIT")
           fi
-          python -m sf_event_curator.cli --db /tmp/events.db rank --llm "${args[@]}"
+          python -m sfevents.cli --db /tmp/events.db rank --llm "${args[@]}"
 
       - name: Export to static JSON
         run: |
-          python -m sf_event_curator.cli --db /tmp/events.db export \
+          python -m sfevents.cli --db /tmp/events.db export \
             --out docs/data/events.json --sort score
 
       - name: Commit and push if the export changed

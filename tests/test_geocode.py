@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sf_event_curator import geocode
+from sfevents import geocode
 
 
 # ------------------------------ place_key ------------------------------
@@ -182,7 +182,7 @@ def test_progress_callback_sees_every_place():
 
 def test_identifying_user_agent_is_set():
     """Nominatim's usage policy requires a UA that identifies the caller."""
-    assert "sf-event-curator" in geocode.USER_AGENT
+    assert "sfevents" in geocode.USER_AGENT
     assert "github.com" in geocode.USER_AGENT
 
 

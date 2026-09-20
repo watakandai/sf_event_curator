@@ -102,7 +102,7 @@ class NineteenHzFetcher:
     def fetch(self) -> list[Event]:
         req = urllib.request.Request(
             self.listing_url,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; sf-event-curator/0.1)"},
+            headers={"User-Agent": "Mozilla/5.0 (compatible; sfevents/0.1)"},
         )
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             html = resp.read().decode("utf-8", errors="replace")

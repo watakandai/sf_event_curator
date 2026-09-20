@@ -26,7 +26,7 @@ import urllib.parse
 import urllib.request
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
-USER_AGENT = "sf-event-curator/0.1 (+https://github.com/watakandai/sf_event_curator)"
+USER_AGENT = "sfevents/0.1 (+https://github.com/watakandai/sfevents)"
 
 # Bay Area bounding box (west, north, east, south), used to prefer local
 # matches - "The Independent" and "1015 Folsom" are ambiguous worldwide.

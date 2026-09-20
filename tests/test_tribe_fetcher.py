@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 
-from sf_event_curator.fetchers.tribe import TribeEventsFetcher
+from sfevents.fetchers.tribe import TribeEventsFetcher
 
 
 def item(id, title, start, end=None, **extra):

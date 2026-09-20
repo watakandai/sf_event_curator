@@ -3,7 +3,7 @@ from datetime import date
 
 import pytest
 
-from sf_event_curator.fetchers.annual import (
+from sfevents.fetchers.annual import (
     AnnualEventsFetcher, _nth_weekday, _resolve_annual, _add_months,
 )
 

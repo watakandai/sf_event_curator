@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import timezone
 from pathlib import Path
 
-from sf_event_curator.fetchers.funcheap import FuncheapFetcher
+from sfevents.fetchers.funcheap import FuncheapFetcher
 
 FIXTURE = Path(__file__).parent / "fixtures" / "funcheap_sample.xml"
 
@@ -123,7 +123,7 @@ def test_fetch_uses_urlopen_and_parses_response(monkeypatch):
         return FakeResponse()
 
     monkeypatch.setattr(
-        "sf_event_curator.fetchers.funcheap.urllib.request.urlopen", fake_urlopen
+        "sfevents.fetchers.funcheap.urllib.request.urlopen", fake_urlopen
     )
     events = fetcher.fetch()
     assert len(events) == 3

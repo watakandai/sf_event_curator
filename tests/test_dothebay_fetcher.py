@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 
-from sf_event_curator.fetchers.dothebay import DoTheBayFetcher
+from sfevents.fetchers.dothebay import DoTheBayFetcher
 
 FIXTURE = Path(__file__).parent / "fixtures" / "dothebay_sample.html"
 
@@ -102,7 +102,7 @@ def test_fetch_uses_urlopen_with_correct_url(monkeypatch):
         return FakeResponse()
 
     monkeypatch.setattr(
-        "sf_event_curator.fetchers.dothebay.urllib.request.urlopen", fake_urlopen
+        "sfevents.fetchers.dothebay.urllib.request.urlopen", fake_urlopen
     )
     events = fetcher.fetch()
     assert len(events) == 4

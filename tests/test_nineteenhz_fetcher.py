@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from sf_event_curator.fetchers.nineteenhz import (
+from sfevents.fetchers.nineteenhz import (
     NineteenHzFetcher, _first_time, _price, _split_title_venue,
 )
 

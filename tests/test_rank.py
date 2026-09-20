@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from sf_event_curator import rank
+from sfevents import rank
 
 
 def row(**kw):

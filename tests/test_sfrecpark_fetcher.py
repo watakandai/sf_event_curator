@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from pathlib import Path
 
-from sf_event_curator.fetchers.sfrecpark import SFRecParkFetcher, _month_window
+from sfevents.fetchers.sfrecpark import SFRecParkFetcher, _month_window
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sfrecpark_sample.html"
 

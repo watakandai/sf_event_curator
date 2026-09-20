@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from . import db
 from .models import Event
 
-DB_PATH = Path(os.environ.get("SF_EVENT_CURATOR_DB", Path.home() / ".sf_event_curator" / "events.db"))
+DB_PATH = Path(os.environ.get("SFEVENTS_DB", Path.home() / ".sfevents" / "events.db"))
 STATIC_DIR = Path(__file__).parent / "static"
 
 

@@ -132,7 +132,7 @@ class DoTheBayFetcher:
         for path in self._paths():
             url = urljoin(BASE_URL, path)
             req = urllib.request.Request(
-                url, headers={"User-Agent": "sf-event-curator/0.1"}
+                url, headers={"User-Agent": "sfevents/0.1"}
             )
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 html = resp.read().decode("utf-8", errors="replace")

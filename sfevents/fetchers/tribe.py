@@ -54,7 +54,7 @@ class TribeEventsFetcher:
             })
             req = urllib.request.Request(
                 f"{self.site}{API_PATH}?{query}",
-                headers={"User-Agent": "sf-event-curator/0.1"},
+                headers={"User-Agent": "sfevents/0.1"},
             )
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))

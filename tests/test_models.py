@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 
-from sf_event_curator.models import Event
+from sfevents.models import Event
 
 
 def make_event(cost: str) -> Event:

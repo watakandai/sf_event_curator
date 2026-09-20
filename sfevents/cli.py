@@ -21,7 +21,7 @@ from .fetchers.seasonal import SeasonalFetcher
 from .fetchers.sfrecpark import SFRecParkFetcher
 from .fetchers.tribe import TribeEventsFetcher
 
-DEFAULT_DB = Path.home() / ".sf_event_curator" / "events.db"
+DEFAULT_DB = Path.home() / ".sfevents" / "events.db"
 FETCHERS = [
     AnnualEventsFetcher(),
     FuncheapFetcher(),

@@ -1,9 +1,9 @@
 # Add this line via `crontab -e` (adjust the path to match where you
 # cloned/copied this project). Runs every Monday at 9:00 AM local time.
 #
-# The wrapper script logs to ~/.sf_event_curator/fetch.log regardless of
+# The wrapper script logs to ~/.sfevents/fetch.log regardless of
 # cron's own output redirection, so the `>> ... 2>&1` here is a backstop for
 # genuinely unexpected failures (e.g. the script itself failing to start),
 # not the primary logging path.
 
-0 9 * * MON /home/<YOUR_USER>/Documents/projects/playgrounds/sf_event_curator/scripts/weekly_fetch.sh >> /home/<YOUR_USER>/.sf_event_curator/cron.log 2>&1
+0 9 * * MON /home/<YOUR_USER>/Documents/projects/playgrounds/sfevents/scripts/weekly_fetch.sh >> /home/<YOUR_USER>/.sfevents/cron.log 2>&1

@@ -26,7 +26,7 @@ class FuncheapFetcher:
 
     def fetch(self) -> list[Event]:
         req = urllib.request.Request(
-            self.feed_url, headers={"User-Agent": "sf-event-curator/0.1"}
+            self.feed_url, headers={"User-Agent": "sfevents/0.1"}
         )
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             data = resp.read()

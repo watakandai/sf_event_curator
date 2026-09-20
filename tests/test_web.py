@@ -5,17 +5,17 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-from sf_event_curator import db as db_module
-from sf_event_curator.models import Event
+from sfevents import db as db_module
+from sfevents.models import Event
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     """A TestClient wired to a fresh temp DB, isolated per test."""
     db_path = tmp_path / "events.db"
-    monkeypatch.setenv("SF_EVENT_CURATOR_DB", str(db_path))
+    monkeypatch.setenv("SFEVENTS_DB", str(db_path))
     # web.py reads the env var at import time, so reload it fresh per test
-    from sf_event_curator import web as web_module
+    from sfevents import web as web_module
     importlib.reload(web_module)
     with TestClient(web_module.app) as c:
         yield c, db_path

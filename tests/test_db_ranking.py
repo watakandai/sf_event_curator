@@ -2,11 +2,11 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime
 
-from sf_event_curator.db import (
+from sfevents.db import (
     SCHEMA, init_db, upsert_events, query_events, set_scores, unscored_events,
     row_to_dict, count_events,
 )
-from sf_event_curator.models import Event
+from sfevents.models import Event
 
 
 def make_event(source_id: str, **kw) -> Event:
@@ -184,7 +184,7 @@ def test_no_images_becomes_an_empty_list_not_none(tmp_path):
 
 def test_refetching_does_not_wipe_coordinates(tmp_path):
     """Geocoding costs rate-limited requests; a refetch must not discard it."""
-    from sf_event_curator.db import set_coordinates
+    from sfevents.db import set_coordinates
 
     db = tmp_path / "e.db"
     init_db(db)
@@ -200,7 +200,7 @@ def test_refetching_does_not_wipe_coordinates(tmp_path):
 
 
 def test_geocache_stores_hits_and_misses_separately(tmp_path):
-    from sf_event_curator.db import get_geocache, geocache_misses, put_geocache
+    from sfevents.db import get_geocache, geocache_misses, put_geocache
 
     db = tmp_path / "e.db"
     init_db(db)
@@ -212,7 +212,7 @@ def test_geocache_stores_hits_and_misses_separately(tmp_path):
 
 
 def test_geocache_entries_can_be_corrected(tmp_path):
-    from sf_event_curator.db import get_geocache, geocache_misses, put_geocache
+    from sfevents.db import get_geocache, geocache_misses, put_geocache
 
     db = tmp_path / "e.db"
     init_db(db)
@@ -250,7 +250,7 @@ def test_migration_adds_image_and_coordinate_columns(tmp_path):
 
 def test_clear_coordinates_blanks_only_the_named_events(tmp_path):
     """A coordinate invalidated later must not stay on the row as a wrong pin."""
-    from sf_event_curator.db import clear_coordinates, set_coordinates
+    from sfevents.db import clear_coordinates, set_coordinates
 
     db = tmp_path / "e.db"
     init_db(db)
@@ -270,7 +270,7 @@ def test_clear_coordinates_blanks_only_the_named_events(tmp_path):
 
 
 def test_clear_coordinates_with_nothing_to_do_is_a_noop(tmp_path):
-    from sf_event_curator.db import clear_coordinates
+    from sfevents.db import clear_coordinates
 
     db = tmp_path / "e.db"
     init_db(db)

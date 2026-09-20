@@ -125,7 +125,7 @@ class SFRecParkFetcher:
         for year, month in _month_window(start, self.months_ahead):
             url = f"{BASE_URL}{CALENDAR_PATH}?month={month}&year={year}&calType=0"
             req = urllib.request.Request(
-                url, headers={"User-Agent": "sf-event-curator/0.1"}
+                url, headers={"User-Agent": "sfevents/0.1"}
             )
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 html = resp.read().decode("utf-8", errors="replace")

@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from sf_event_curator.db import init_db, upsert_events, query_events, count_events
-from sf_event_curator.fetchers.funcheap import FuncheapFetcher
-from sf_event_curator.fetchers.dothebay import DoTheBayFetcher
-from sf_event_curator import cli as cli_module
+from sfevents.db import init_db, upsert_events, query_events, count_events
+from sfevents.fetchers.funcheap import FuncheapFetcher
+from sfevents.fetchers.dothebay import DoTheBayFetcher
+from sfevents import cli as cli_module
 
 FIXTURE = Path(__file__).parent / "fixtures" / "funcheap_sample.xml"
 DOTHEBAY_FIXTURE = Path(__file__).parent / "fixtures" / "dothebay_sample.html"
@@ -100,7 +100,7 @@ def test_pipeline_is_idempotent_on_repeated_fetch(tmp_path):
 
 def run_cli(args: list[str]) -> str:
     old_argv = sys.argv
-    sys.argv = ["sf-event-curator", *args]
+    sys.argv = ["sfevents", *args]
     buf = io.StringIO()
     try:
         with redirect_stdout(buf):
@@ -147,7 +147,7 @@ def run_cli_capture_stderr(args: list[str]) -> tuple[str, str]:
     """Like run_cli, but also captures stderr (used for warnings/failures)."""
     import contextlib
     old_argv = sys.argv
-    sys.argv = ["sf-event-curator", *args]
+    sys.argv = ["sfevents", *args]
     out, err = io.StringIO(), io.StringIO()
     try:
         with redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -255,7 +255,7 @@ def test_export_keeps_events_still_running(tmp_path):
     import json
     from datetime import date, datetime, timedelta
 
-    from sf_event_curator.models import Event
+    from sfevents.models import Event
 
     db_path = tmp_path / "events.db"
     out_path = tmp_path / "events.json"
@@ -337,7 +337,7 @@ def stub_provider(monkeypatch):
     Returns the list of batches sent, so a test can assert what the weekly
     run would actually have paid for.
     """
-    from sf_event_curator import rank as ranking
+    from sfevents import rank as ranking
 
     sent: list[list[str]] = []
 
@@ -416,7 +416,7 @@ def test_export_gives_each_event_a_stable_key(tmp_path):
     import json
     from datetime import date, datetime, timedelta
 
-    from sf_event_curator.models import Event
+    from sfevents.models import Event
 
     db_path = tmp_path / "events.db"
     out_path = tmp_path / "events.json"

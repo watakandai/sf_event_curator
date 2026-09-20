@@ -1,4 +1,4 @@
-# sf_event_curator
+# sfevents
 
 Fetches Bay Area events into a local SQLite store, ranks them against a
 profile you write, and browses them as a list or a calendar - with a
@@ -51,22 +51,22 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
 python3 -m pytest -q
 
-python3 -m sf_event_curator.cli fetch          # pull events into the store
-python3 -m uvicorn sf_event_curator.web:app --reload   # dashboard at http://127.0.0.1:8000
+python3 -m sfevents.cli fetch          # pull events into the store
+python3 -m uvicorn sfevents.web:app --reload   # dashboard at http://127.0.0.1:8000
 ```
 
 ## CLI
 
 ```bash
-python3 -m sf_event_curator.cli fetch                   # pull from all sources
-python3 -m sf_event_curator.cli geocode                 # venue text -> coordinates (cached)
-python3 -m sf_event_curator.cli rank                    # heuristic scores, offline & free
-python3 -m sf_event_curator.cli rank --llm              # also score against profile.md
-python3 -m sf_event_curator.cli list --sort score       # best match first
-python3 -m sf_event_curator.cli export --out docs/data/events.json --sort score
+python3 -m sfevents.cli fetch                   # pull from all sources
+python3 -m sfevents.cli geocode                 # venue text -> coordinates (cached)
+python3 -m sfevents.cli rank                    # heuristic scores, offline & free
+python3 -m sfevents.cli rank --llm              # also score against profile.md
+python3 -m sfevents.cli list --sort score       # best match first
+python3 -m sfevents.cli export --out docs/data/events.json --sort score
 ```
 
-`--db path` overrides the default DB location (`~/.sf_event_curator/events.db`).
+`--db path` overrides the default DB location (`~/.sfevents/events.db`).
 
 `export` drops past events and trims bookkeeping columns by default, since the
 static page is fetched on every visit; `--include-past` and `--full` opt out.
@@ -139,7 +139,7 @@ go?* It reads `profile.md` - plain English, no schema - and scores each event
 ```bash
 cp profile.example.md profile.md   # then edit it; the default is a guess
 export GEMINI_API_KEY=...          # or ANTHROPIC_API_KEY
-python3 -m sf_event_curator.cli rank --llm --provider gemini
+python3 -m sfevents.cli rank --llm --provider gemini
 ```
 
 | Provider | Env var | Default model | Notes |
@@ -228,7 +228,7 @@ something looks off.
 ## Layout
 
 ```
-sf_event_curator/
+sfevents/
   models.py           Event dataclass
   db.py                SQLite schema, CRUD, query filters
   rank.py              heuristic + LLM rankers, provider adapters
@@ -328,13 +328,13 @@ RSS/API-based, add its name to `FRAGILE_SOURCES` too.
 
 Three options, same core app:
 
-**Self-hosted (systemd + cron)** — `deploy/sf-event-curator.service` runs
+**Self-hosted (systemd + cron)** — `deploy/sfevents.service` runs
 the dashboard persistently on `127.0.0.1`; `deploy/crontab.txt` +
 `scripts/weekly_fetch.sh` handle the weekly fetch. No auth on the dashboard,
 so don't expose it beyond localhost/your LAN without a reverse proxy.
 
 **Oracle Cloud (or any VPS)** — same systemd service, plus a reverse proxy
-in front since it's now internet-facing. `deploy/nginx-sf-event-curator.conf`
+in front since it's now internet-facing. `deploy/nginx-sfevents.conf`
 adds basic auth; `deploy/oracle_cloud_setup.md` covers OCI-specific
 networking (Security List + the instance's own iptables rules both need
 opening) and an alternative Caddy-based setup with automatic HTTPS. Common

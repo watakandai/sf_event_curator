@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 from datetime import date, datetime
 
-from sf_event_curator.fetchers.seasonal import DATA_FILE, SeasonalFetcher, windows
+from sfevents.fetchers.seasonal import DATA_FILE, SeasonalFetcher, windows
 
 TODAY = date(2026, 9, 19)
 

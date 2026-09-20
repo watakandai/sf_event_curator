@@ -3,11 +3,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from sf_event_curator.db import (
+from sfevents.db import (
     init_db, upsert_events, query_events, delete_event, count_events,
     get_event, update_event, insert_manual_event, row_to_dict,
 )
-from sf_event_curator.models import Event
+from sfevents.models import Event
 
 
 @pytest.fixture

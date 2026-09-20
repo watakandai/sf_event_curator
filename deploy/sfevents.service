@@ -1,13 +1,13 @@
-# systemd service for the sf_event_curator dashboard.
+# systemd service for the sfevents dashboard.
 #
-# Install: sudo cp deploy/sf-event-curator.service /etc/systemd/system/
+# Install: sudo cp deploy/sfevents.service /etc/systemd/system/
 # Then:    sudo systemctl daemon-reload
-#          sudo systemctl enable --now sf-event-curator
+#          sudo systemctl enable --now sfevents
 #
 # BEFORE installing, edit the three placeholders below:
 #   <YOUR_USER>         - your Linux username (e.g. kandai)
 #   <PROJECT_DIR>        - absolute path to this project
-#                          (e.g. /home/kandai/Documents/projects/playgrounds/sf_event_curator)
+#                          (e.g. /home/kandai/Documents/projects/playgrounds/sfevents)
 #   <VENV_PYTHON>        - absolute path to the venv's python3, typically
 #                          <PROJECT_DIR>/.venv/bin/python3
 #
@@ -27,8 +27,8 @@ After=network.target
 Type=simple
 User=<YOUR_USER>
 WorkingDirectory=<PROJECT_DIR>
-Environment=SF_EVENT_CURATOR_DB=/home/<YOUR_USER>/.sf_event_curator/events.db
-ExecStart=<VENV_PYTHON> -m uvicorn sf_event_curator.web:app --host 127.0.0.1 --port 8000
+Environment=SFEVENTS_DB=/home/<YOUR_USER>/.sfevents/events.db
+ExecStart=<VENV_PYTHON> -m uvicorn sfevents.web:app --host 127.0.0.1 --port 8000
 Restart=on-failure
 RestartSec=5
 
