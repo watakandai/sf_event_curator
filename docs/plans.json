@@ -10,7 +10,7 @@
       "until": "18:00",
       "venue": "Monterey Bay",
       "address": "Monterey, CA",
-      "min": 3,
+      "min": 2,
       "deadline": "2026-09-24",
       "note": "Humpback & blue whale migration. 2-3hr boat tour. Bring motion sickness meds."
     },
@@ -21,15 +21,15 @@
       "until": "21:00",
       "venue": "Ocean Beach, fire pits near Fulton St",
       "address": "Great Hwy & Fulton St, San Francisco, CA",
-      "min": 3,
+      "min": 2,
       "deadline": "2026-09-26",
       "note": "Bring a layer and something to toast. I'll bring firewood. (Promised with friend)"
     },
     {
       "title": "Weekend Camping Trip",
       "date": "2026-10-03",
-      "time": "9:00",
-      "until": "17:00",
+      "time": "10:00",
+      "until": "18:00",
       "venue": "Big Basin Redwoods State Park",
       "address": "Big Basin, CA",
       "min": 2,
@@ -43,7 +43,7 @@
       "until": "17:00",
       "venue": "Napa Valley Winery",
       "address": "Napa, CA",
-      "min": 3,
+      "min": 2,
       "deadline": "2026-10-07",
       "note": "Peak harvest season. Experience grape crushing at a winery. Carpool from SF."
     },
@@ -74,7 +74,7 @@
       "until": "18:00",
       "venue": "Mendocino County Fairgrounds",
       "address": "Mendocino, CA",
-      "min": 3,
+      "min": 2,
       "deadline": "2026-10-15",
       "note": "Wine tasting, mushroom cooking, artisan vendors. 3hr drive from SF."
     },
