@@ -280,11 +280,16 @@ def _redact(text: str) -> str:
     return re.sub(r"(key=)[^&\s\"']+", r"\1***", text)
 
 
+USER_AGENT = "sfevents/0.1 (+https://github.com/watakandai/sfevents)"
+
+
 def _post_json(url: str, headers: dict, payload: dict, timeout: int) -> dict:
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json", **headers},
+        # Groq sits behind Cloudflare, which rejects urllib's default
+        # "Python-urllib/3.x" agent with a bare 403 (error code 1010).
+        headers={"Content-Type": "application/json", "User-Agent": USER_AGENT, **headers},
         method="POST",
     )
     try:

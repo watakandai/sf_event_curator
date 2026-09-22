@@ -675,3 +675,16 @@ def test_ollama_is_skipped_when_no_server_was_started(monkeypatch):
                                 on_provider=lambda n, m, k, note: notes.append(note))
     assert out == {}
     assert "OLLAMA_HOST not set" in notes[-1]
+
+
+def test_requests_do_not_use_urllibs_default_user_agent(monkeypatch):
+    """Groq's Cloudflare front door 403s "Python-urllib/3.x" (error 1010)."""
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["ua"] = req.get_header("User-agent")
+        return io.BytesIO(b"{}")
+
+    monkeypatch.setattr(rank.urllib.request, "urlopen", fake_urlopen)
+    rank._post_json(rank.GROQ_URL, {"Authorization": "Bearer x"}, {}, 30)
+    assert captured["ua"] and "Python-urllib" not in captured["ua"]
