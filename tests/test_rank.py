@@ -390,6 +390,36 @@ def test_a_quota_that_never_clears_stops_the_run(monkeypatch):
     assert notes[1:] == ["skipped (rate limited)"] * 2
 
 
+def test_a_dropped_connection_is_retried_like_a_503(monkeypatch):
+    """Seen in Actions: 'Connection reset by peer' mid-run lost a whole batch."""
+    import urllib.error
+    calls = {"n": 0}
+
+    def reset_once(prompt, model, key, timeout):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise urllib.error.URLError(ConnectionResetError(104, "Connection reset by peer"))
+        return json.dumps([{"i": 1, "score": 50, "reason": "ok"}])
+
+    _stub(monkeypatch, reset_once)
+    out = rank.llm_scores([{"id": 1, "title": "A"}], "profile", provider="stub",
+                          sleep=lambda s: None)
+    assert out == {1: (50.0, "ok")}
+
+
+def test_a_timeout_fails_its_batch_rather_than_the_run(monkeypatch):
+    def always_slow(prompt, model, key, timeout):
+        raise TimeoutError("read timed out")
+
+    _stub(monkeypatch, always_slow)
+    notes: list[str] = []
+    out = rank.llm_scores([{"id": 1, "title": "A"}], "profile", provider="stub",
+                          sleep=lambda s: None,
+                          on_progress=lambda o, s, note: notes.append(note))
+    assert out == {}
+    assert notes[0].startswith("FAILED (TimeoutError")
+
+
 def test_other_errors_are_not_retried(monkeypatch):
     calls = {"n": 0}
 

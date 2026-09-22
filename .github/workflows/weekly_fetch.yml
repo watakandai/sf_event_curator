@@ -53,6 +53,10 @@ concurrency:
 jobs:
   fetch-and-export:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        # pipefail, so `rank ... | tee` still fails when rank does.
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -61,10 +65,13 @@ jobs:
           python-version: '3.12'
 
       # Rolling cache: the run-number key never hits, so it always restores
-      # the newest previous database via the prefix and then saves a fresh
-      # copy under this run's key.
+      # the newest previous database via the prefix, and the save step near
+      # the end stores a fresh copy under this run's key. Restore and save are
+      # split (rather than one actions/cache step) because the combined
+      # action only saves when the job succeeds - and a run that goes red
+      # for an LLM failure must still keep the scores it did get.
       - name: Restore events database
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: /tmp/events.db
           key: events-db-${{ github.run_number }}
@@ -109,8 +116,14 @@ jobs:
         if: steps.ranker.outputs.provider == ''
         run: python -m sfevents.cli --db /tmp/events.db rank
 
+      # Allowed to fail so the export below still ships whatever did get
+      # scored; the "Alert" step at the end turns the run red afterwards.
+      # `rank --llm` exits non-zero whenever any event was left unscored
+      # (a 503, a quota, a reset connection), not just on a crash.
       - name: Rank against profile.md with an LLM
+        id: llm
         if: steps.ranker.outputs.provider != ''
+        continue-on-error: true
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -133,7 +146,7 @@ jobs:
             esac
             args+=(--limit "$LIMIT")
           fi
-          python -m sfevents.cli --db /tmp/events.db rank --llm "${args[@]}"
+          python -m sfevents.cli --db /tmp/events.db rank --llm "${args[@]}" 2>&1 | tee /tmp/rank.log
 
       - name: Export to static JSON
         run: |
@@ -145,3 +158,28 @@ jobs:
         with:
           commit_message: 'Weekly event data refresh'
           file_pattern: docs/data/events.json
+
+      - name: Save events database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/events.db
+          key: events-db-${{ github.run_number }}
+
+      # The alert. A red scheduled run emails whoever last edited the cron
+      # line (GitHub's default Actions notification), and the summary shows
+      # on the run page. Everything above has already shipped by now.
+      - name: Alert if LLM ranking failed
+        if: steps.llm.outcome == 'failure'
+        run: |
+          {
+            echo "## LLM ranking failed"
+            echo
+            echo "The site shipped, but some events kept heuristic scores only. They'll be retried next run."
+            echo
+            echo '```'
+            grep -E "llm:|batch [0-9]+" /tmp/rank.log | cut -c1-200 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=LLM ranking failed::$(grep -E '^llm: (FAILED|SKIPPED|scored)' /tmp/rank.log | tail -1)"
+          exit 1

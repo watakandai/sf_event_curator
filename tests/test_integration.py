@@ -411,6 +411,44 @@ def test_heuristic_pass_leaves_llm_scores_alone(tmp_path, fake_network,
     assert all(r["score"] == 90 for r in rows)
 
 
+def test_llm_failure_makes_rank_exit_nonzero(tmp_path, fake_network,
+                                             only_fixture_fetchers, monkeypatch):
+    """The alert: a run where the provider scored nothing must not look green.
+
+    Regression: Gemini 503'd every batch (0/200 scored) and the workflow
+    still reported success.
+    """
+    from sfevents import cli as cli_mod
+    from sfevents import rank as ranking
+
+    def down(prompt, model, key, timeout):
+        raise ranking.ProviderError("HTTP 503: high demand", status=503)
+
+    monkeypatch.setitem(ranking.PROVIDERS, "stub", ("STUB_KEY", "stub-model", down))
+    monkeypatch.setenv("STUB_KEY", "present")
+    monkeypatch.setattr(ranking, "RETRY_WAITS", (0, 0, 0))
+    db_path = tmp_path / "events.db"
+    profile = tmp_path / "profile.md"
+    profile.write_text("I like free outdoor festivals.\n")
+
+    run_cli(["--db", str(db_path), "fetch"])
+    with pytest.raises(SystemExit) as info:
+        run_cli_capture_stderr(["--db", str(db_path), "rank", "--llm",
+                                "--provider", "stub", "--profile", str(profile)])
+    assert info.value.code == cli_mod.LLM_FAILED_EXIT
+
+
+def test_a_fully_scored_llm_run_exits_cleanly(tmp_path, fake_network,
+                                               only_fixture_fetchers, stub_provider):
+    db_path = tmp_path / "events.db"
+    profile = tmp_path / "profile.md"
+    profile.write_text("I like free outdoor festivals.\n")
+    run_cli(["--db", str(db_path), "fetch"])
+    # No SystemExit raised means exit status 0.
+    run_cli(["--db", str(db_path), "rank", "--llm",
+             "--provider", "stub", "--profile", str(profile)])
+
+
 def test_export_gives_each_event_a_stable_key(tmp_path):
     """docs/plans.json pitches an event by source:source_id, not the db id."""
     import json

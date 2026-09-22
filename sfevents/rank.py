@@ -402,9 +402,14 @@ def _call_with_retry(call, prompt, model, key, timeout, sleep):
         try:
             return call(prompt, model, key, timeout)
         except ProviderError as exc:
-            if exc.status not in (429, 503) or exc.daily or wait is None:
+            if exc.status not in (429, 500, 503) or exc.daily or wait is None:
                 raise
             sleep(min(exc.retry_after or wait, 120))
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            # A reset connection or a timeout is as transient as a 503.
+            if wait is None:
+                raise
+            sleep(wait)
 
 
 def llm_scores(
@@ -461,7 +466,7 @@ def llm_scores(
         try:
             reply = _call_with_retry(call, prompt, model, key, timeout, sleep)
             scored = parse_scores(reply, len(batch))
-        except (urllib.error.URLError, urllib.error.HTTPError, ValueError, KeyError) as exc:
+        except (urllib.error.URLError, TimeoutError, ConnectionError, ValueError, KeyError) as exc:
             if getattr(exc, "status", None) == 429:
                 rate_limited = True
             if on_progress:

@@ -124,7 +124,10 @@ def main() -> None:
     elif args.cmd == "export":
         _cmd_export(args)
     elif args.cmd == "rank":
-        _cmd_rank(args)
+        # Non-zero when the LLM pass left events unscored, so a scheduled run
+        # goes red instead of shipping heuristic-only scores unnoticed.
+        if not _cmd_rank(args):
+            sys.exit(LLM_FAILED_EXIT)
     elif args.cmd == "geocode":
         _cmd_geocode(args)
 
@@ -211,11 +214,17 @@ def _cmd_export(args) -> None:
     print(f"exported {len(events)} events to {out_path}{note}")
 
 
-def _cmd_rank(args) -> None:
+# Distinct from argparse's 2 and a crash's 1, so the workflow can tell "the
+# provider let us down" apart from a bug.
+LLM_FAILED_EXIT = 3
+
+
+def _cmd_rank(args) -> bool:
+    """Returns False when --llm was asked for but didn't score everything."""
     rows = [row_to_dict(r) for r in query_events(args.db)]
     if not rows:
         print("no events to rank - run `fetch` first")
-        return
+        return True
 
     scores = ranking.heuristic_scores(rows)
     written = set_heuristic_scores(args.db, scores)
@@ -225,13 +234,13 @@ def _cmd_rank(args) -> None:
 
     if not args.llm:
         print("(pass --llm to also rank against profile.md)")
-        return
+        return True
 
     try:
         profile = ranking.load_profile(args.profile)
     except FileNotFoundError as exc:
         print(f"llm: SKIPPED ({exc})", file=sys.stderr)
-        return
+        return False
 
     model = args.model or ranking.PROVIDERS[args.provider][1]
     phash = ranking.profile_hash(profile, model)
@@ -245,7 +254,7 @@ def _cmd_rank(args) -> None:
 
     if not todo:
         print(f"llm: nothing to do - all events already scored for profile {phash}")
-        return
+        return True
 
     print(f"llm: sending {len(todo)} events to {args.provider}/{model} in batches of {args.batch_size}")
 
@@ -261,11 +270,18 @@ def _cmd_rank(args) -> None:
         )
     except (RuntimeError, ValueError) as exc:
         print(f"llm: SKIPPED ({exc})", file=sys.stderr)
-        return
+        return False
 
     if llm:
         set_scores(args.db, llm, scored_by=f"{args.provider}:{model}", profile_hash=phash)
     print(f"llm: scored {len(llm)}/{len(todo)} events for profile {phash}")
+    if len(llm) < len(todo):
+        print(
+            f"llm: FAILED - {len(todo) - len(llm)} of {len(todo)} events left unscored",
+            file=sys.stderr,
+        )
+        return False
+    return True
 
 
 def _cmd_geocode(args) -> None:
