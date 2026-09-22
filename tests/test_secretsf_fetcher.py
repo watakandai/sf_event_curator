@@ -1,0 +1,300 @@
+from __future__ import annotations
+import io
+import json
+from datetime import datetime
+from pathlib import Path
+
+import pytest
+
+from sfevents import rank
+from sfevents.db import get_extraction, init_db
+from sfevents.fetchers import secretsf
+from sfevents.fetchers.secretsf import SecretSFFetcher
+from sfevents.llm import FallbackLLM, NoProviderAvailable
+
+POSTS = json.loads((Path(__file__).parent / "fixtures" / "secretsf_posts.json").read_text())
+SUNSET, SAUSALITO, SUNDOWN, GUIDE = POSTS
+
+# What a model would say about each fixture article.
+REPLIES = {
+    "Sunset District": {"events": [{
+        "title": "Sunset Night Market", "start": "2026-09-25T17:00",
+        "end": "2026-09-25T22:00", "venue": "Irving Street",
+        "address": "Irving St, San Francisco", "cost": "Free", "kind": "market",
+        "summary": "Five blocks of vendors, a circus zone and karaoke.",
+    }]},
+    "Italian Riviera": {"events": [{
+        "title": "Sausalito Boat Show", "start": "2026-09-25", "end": "2026-09-27",
+        "venue": "Clipper Yacht Harbor", "address": "Sausalito", "cost": "$25",
+        "kind": "festival", "summary": "Yachts, electric boats and seminars.",
+    }]},
+    "Sundown Cinema": {"events": [
+        {"title": "Sundown Cinema: School of Rock", "start": "2026-09-25",
+         "venue": "Ferry Building", "cost": "0", "kind": "film"},
+        {"title": "Sundown Cinema: Beetlejuice", "start": "2026-10-30",
+         "venue": "Crane Cove Park", "cost": "0", "kind": "film"},
+    ]},
+}
+
+
+class StubLLM:
+    """Stands in for FallbackLLM: answers from REPLIES by article title."""
+
+    def __init__(self, replies=REPLIES, down=False):
+        self.replies = replies
+        self.down = down
+        self.prompts: list[str] = []
+        self.providers = ["stub"]
+        self.unconfigured: list[str] = []
+
+    available = True
+
+    def complete(self, prompt: str):
+        self.prompts.append(prompt)
+        if self.down:
+            raise NoProviderAvailable("stub: HTTP 503: high demand")
+        title = prompt.split("ARTICLE TITLE\n", 1)[1].split("\n", 1)[0]
+        for needle, reply in self.replies.items():
+            if needle in title:
+                return json.dumps(reply), "stub:model"
+        return '{"events": []}', "stub:model"
+
+
+def fetcher(tmp_path=None, llm=None):
+    f = SecretSFFetcher(llm=llm or StubLLM())
+    if tmp_path is not None:
+        db_path = tmp_path / "events.db"
+        init_db(db_path)
+        f.bind_db(db_path)
+    return f
+
+
+# ------------------------------ extraction ------------------------------
+
+def test_an_article_becomes_a_structured_event():
+    events = fetcher().parse([SUNSET])
+    [e] = events
+    assert e.source == "secretsf"
+    assert e.source_id == "52503:2026-09-25"
+    assert e.title == "Sunset Night Market"
+    assert e.start.isoformat() == "2026-09-25T17:00:00-07:00"
+    assert e.end.isoformat() == "2026-09-25T22:00:00-07:00"
+    assert e.venue == "Irving Street"
+    assert e.is_free  # "Free" is normalised to the codebase's "0"
+    assert e.categories == ["market"]
+    assert e.url == SUNSET["link"]
+
+
+def test_a_date_only_event_is_all_day_like_other_sources():
+    [e] = fetcher().parse([SAUSALITO])
+    assert e.start == datetime(2026, 9, 25)
+    assert e.end == datetime(2026, 9, 27)
+    assert e.cost == "$25"
+    assert e.images and e.images[0].startswith("https://")
+
+
+def test_one_article_can_list_several_dates():
+    events = fetcher().parse([SUNDOWN])
+    assert [e.venue for e in events] == ["Ferry Building", "Crane Cove Park"]
+    assert len({e.source_id for e in events}) == 2
+
+
+def test_an_article_that_is_not_an_event_yields_nothing():
+    assert fetcher().parse([GUIDE]) == []
+
+
+def test_the_prompt_carries_the_publish_date_and_clean_article_text():
+    llm = StubLLM()
+    fetcher(llm=llm).parse([SUNSET])
+    [prompt] = llm.prompts
+    assert "published 2026-09-21" in prompt
+    assert "Sunset Night Market" in prompt
+    assert "<p>" not in prompt and "<strong>" not in prompt
+    assert "See also" not in prompt
+
+
+def test_article_text_drops_embed_chrome_and_the_related_links_footer():
+    text = secretsf.article_text(
+        "<p>Market is <b>Friday</b>.</p><blockquote>View this post on Instagram</blockquote>"
+        "<p>Bring cash.</p><p>See also: <a>another story</a></p><p>More links</p>"
+    )
+    assert text == "Market is Friday.\nBring cash."
+
+
+# ------------------------------ validation ------------------------------
+
+def _one(item, post=SUNSET):
+    return secretsf.to_events(post, [item], "secretsf")
+
+
+def test_entries_without_a_title_or_date_are_dropped():
+    assert _one({"title": "", "start": "2026-09-25"}) == []
+    assert _one({"title": "A", "start": "next Friday"}) == []
+    assert _one({"title": "A"}) == []
+
+
+def test_a_date_before_the_article_or_far_after_it_is_a_misread_year():
+    assert _one({"title": "A", "start": "2025-09-25"}) == []
+    assert _one({"title": "A", "start": "2028-09-25"}) == []
+    assert len(_one({"title": "A", "start": "2026-12-11"})) == 1
+
+
+def test_an_end_before_the_start_is_discarded_not_trusted():
+    [e] = _one({"title": "A", "start": "2026-09-25", "end": "2026-09-20"})
+    assert e.end is None
+
+
+def test_an_unknown_kind_is_left_uncategorised():
+    [e] = _one({"title": "A", "start": "2026-09-25", "kind": "vibes"})
+    assert e.categories == []
+
+
+def test_two_events_on_one_date_get_distinct_ids():
+    events = secretsf.to_events(SUNSET, [
+        {"title": "A", "start": "2026-09-25"}, {"title": "B", "start": "2026-09-25"},
+    ], "secretsf")
+    assert [e.source_id for e in events] == ["52503:2026-09-25", "52503:2026-09-25:2"]
+
+
+def test_parse_reply_tolerates_code_fences_and_rejects_non_json():
+    assert secretsf.parse_reply('```json\n{"events": [{"title": "A"}]}\n```') == [{"title": "A"}]
+    with pytest.raises(ValueError):
+        secretsf.parse_reply("Sorry, I can't help with that.")
+    with pytest.raises(ValueError):
+        secretsf.parse_reply('{"items": []}')
+
+
+# -------------------------------- caching -------------------------------
+
+def test_each_article_is_sent_to_the_llm_only_once(tmp_path):
+    llm = StubLLM()
+    f = fetcher(tmp_path, llm)
+    first = f.parse(POSTS)
+    second = f.parse(POSTS)
+
+    assert len(llm.prompts) == 4, "second run re-sent articles"
+    assert [e.source_id for e in first] == [e.source_id for e in second]
+    assert f.report == "4 articles: 4 cached, 0 extracted"
+
+
+def test_non_events_are_cached_too(tmp_path):
+    """Otherwise every travel guide is re-sent to the model every week."""
+    f = fetcher(tmp_path)
+    f.parse([GUIDE])
+    assert get_extraction(f.db_path, "secretsf", str(GUIDE["id"]), GUIDE["modified"]) == []
+
+
+def test_an_edited_article_is_extracted_again(tmp_path):
+    llm = StubLLM()
+    f = fetcher(tmp_path, llm)
+    f.parse([SUNSET])
+    f.parse([{**SUNSET, "modified": "2026-09-23T10:00:00"}])
+    assert len(llm.prompts) == 2
+
+
+def test_a_provider_outage_is_retried_next_run_not_cached(tmp_path):
+    f = fetcher(tmp_path, StubLLM(down=True))
+    assert f.parse([SUNSET]) == []
+    assert "1 not extracted (retried next run)" in f.report
+    assert "503" in f.report
+
+    f.llm = StubLLM()
+    assert len(f.parse([SUNSET])) == 1
+
+
+def test_an_unparseable_reply_is_not_cached(tmp_path):
+    class Garbled(StubLLM):
+        def complete(self, prompt):
+            return "no idea", "stub:model"
+
+    f = fetcher(tmp_path, Garbled())
+    f.parse([SUNSET])
+    assert get_extraction(f.db_path, "secretsf", str(SUNSET["id"]), SUNSET["modified"]) is None
+    assert "unparseable reply" in f.report
+
+
+def test_without_any_llm_key_the_report_says_so(monkeypatch):
+    for name in ("groq", "gemini", "ollama"):
+        monkeypatch.delenv(rank.PROVIDERS[name][0], raising=False)
+    f = SecretSFFetcher(providers=("groq", "gemini", "ollama"))
+    assert f.parse([SUNSET]) == []
+    assert "no LLM key set for groq, gemini, ollama" in f.report
+
+
+# ---------------------------------- fetch -------------------------------
+
+def test_fetch_asks_for_recent_non_sponsored_things_to_do(monkeypatch):
+    seen = {}
+
+    def fake_urlopen(req, timeout=None):
+        seen["url"] = req.full_url
+        return io.BytesIO(json.dumps([SUNSET]).encode())
+
+    monkeypatch.setattr(secretsf.urllib.request, "urlopen", fake_urlopen)
+    events = SecretSFFetcher(llm=StubLLM()).fetch()
+
+    assert len(events) == 1
+    assert "categories=13" in seen["url"]
+    assert "categories_exclude=12" in seen["url"]
+    assert "after=" in seen["url"]
+    assert "wp%3Afeaturedmedia" in seen["url"]
+
+
+# ----------------------------- FallbackLLM ------------------------------
+
+def _providers(monkeypatch, **fns):
+    for name, fn in fns.items():
+        monkeypatch.setitem(rank.PROVIDERS, name, (f"{name.upper()}_KEY", f"{name}-m", fn))
+        monkeypatch.setenv(f"{name.upper()}_KEY", "x")
+    monkeypatch.setattr(rank, "RETRY_WAITS", (0, 0, 0))
+
+
+def _down(prompt, model, key, timeout):
+    raise rank.ProviderError("HTTP 503: high demand", status=503)
+
+
+def test_fallback_llm_moves_on_when_a_provider_is_down(monkeypatch):
+    _providers(monkeypatch, first=_down, second=lambda *a: "hello")
+    llm = FallbackLLM(["first", "second"], sleep=lambda s: None)
+    assert llm.complete("hi") == ("hello", "second:second-m")
+
+
+def test_fallback_llm_stops_asking_a_provider_whose_quota_is_gone(monkeypatch):
+    calls = {"first": 0}
+
+    def quota(prompt, model, key, timeout):
+        calls["first"] += 1
+        raise rank.ProviderError("HTTP 429: quota", status=429, daily=True)
+
+    _providers(monkeypatch, first=quota, second=lambda *a: "ok")
+    llm = FallbackLLM(["first", "second"], sleep=lambda s: None)
+    llm.complete("a")
+    llm.complete("b")
+    assert calls["first"] == 1
+
+
+def test_fallback_llm_paces_each_provider(monkeypatch):
+    _providers(monkeypatch, first=lambda *a: "ok")
+    waits: list[float] = []
+    ticks = iter([0, 5, 5])  # first call at t=0, second asks at t=5
+    llm = FallbackLLM(["first"], min_interval={"first": 15}, sleep=waits.append,
+                      clock=lambda: next(ticks))
+    llm.complete("a")
+    llm.complete("b")
+    assert waits == [10]
+
+
+def test_fallback_llm_skips_unconfigured_providers(monkeypatch):
+    _providers(monkeypatch, second=lambda *a: "ok")
+    monkeypatch.delenv("FIRST_KEY", raising=False)
+    monkeypatch.setitem(rank.PROVIDERS, "first", ("FIRST_KEY", "m", _down))
+    llm = FallbackLLM(["first", "second"])
+    assert llm.unconfigured == ["first"]
+    assert llm.complete("a")[1] == "second:second-m"
+
+
+def test_fallback_llm_with_nothing_configured_says_so(monkeypatch):
+    monkeypatch.setitem(rank.PROVIDERS, "first", ("FIRST_KEY", "m", _down))
+    monkeypatch.delenv("FIRST_KEY", raising=False)
+    with pytest.raises(NoProviderAvailable, match="no provider configured"):
+        FallbackLLM(["first"]).complete("a")

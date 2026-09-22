@@ -65,6 +65,7 @@ SOURCE_WEIGHT = {
     "visit_sausalito": 1,
     "bodega_bay": 0,        # mostly restaurant and bar nights
     "funcheap_sf": 4,       # human-curated, structured, free-leaning
+    "secretsf": 4,          # editor-picked, one article per event
     "sfrecpark": 2,         # official, all-ages, reliably real
     "19hz_bayarea": 0,
     "dothebay": -2,         # no cost/category data, date-only
