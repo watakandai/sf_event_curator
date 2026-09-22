@@ -11,8 +11,8 @@ Two rankers, deliberately layered:
   person want to go?", reading a plain-English profile the user maintains in
   profile.md. It needs a key and costs money, so it's opt-in, batched, and cached by profile revision - only
   events that have never been scored against the current profile are sent.
-  Which model does the rating is a swappable provider - Claude, Gemini or
-  Groq - see PROVIDERS. `llm_scores_chain` adds fallbacks: whatever the
+  Which model does the rating is a swappable provider - Claude, Gemini,
+  Groq, or a local Ollama model - see PROVIDERS. `llm_scores_chain` adds fallbacks: whatever the
   first provider leaves unscored (a 503, a spent quota) goes to the next.
 
 Keeping both matters: the heuristic is the floor when there's no key, no
@@ -38,6 +38,9 @@ GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:ge
 GEMINI_MODEL = "gemini-3.6-flash"
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "openai/gpt-oss-120b"
+# Small enough (~3GB at Q4) to run on a GitHub Actions runner's CPU. The env
+# var lets the workflow pull and use the same model from one setting.
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL") or "qwen3.5:4b"
 
 # Words that mark an event as a civic/large-scale occasion rather than a
 # routine listing. Deliberately about the KIND of event, not its quality.
@@ -395,6 +398,35 @@ def _call_groq(prompt: str, model: str, api_key: str, timeout: int) -> str:
     )
 
 
+def _call_ollama(prompt: str, model: str, host: str, timeout: int) -> str:
+    """A model on a local (or self-hosted) Ollama server - no key, no quota.
+
+    `host` comes from OLLAMA_HOST, which doubles as the "key": set means a
+    server is up. Ollama's own CLI accepts it without a scheme, so this does
+    too. The native /api/chat endpoint is used rather than Ollama's
+    OpenAI-style one because only it can raise the context window, and
+    Ollama's small default would silently cut a batch off mid-list.
+    """
+    base = host.strip().rstrip("/")
+    if "://" not in base:
+        base = f"http://{base}"
+    data = _post_json(
+        f"{base}/api/chat",
+        {},
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            # Qwen 3.5 thinks by default; on a CPU that costs minutes a batch
+            # and scoring doesn't need it.
+            "think": False,
+            "options": {"num_ctx": 8192},
+        },
+        timeout,
+    )
+    return data.get("message", {}).get("content") or ""
+
+
 # Each entry is (env var holding the key, default model, call function). The
 # call signature is (prompt, model, key, timeout) -> reply text, so adding a
 # provider is one function plus one line here - nothing else in this module,
@@ -403,6 +435,7 @@ PROVIDERS = {
     "anthropic": ("ANTHROPIC_API_KEY", ANTHROPIC_MODEL, _call_anthropic),
     "gemini": ("GEMINI_API_KEY", GEMINI_MODEL, _call_gemini),
     "groq": ("GROQ_API_KEY", GROQ_MODEL, _call_groq),
+    "ollama": ("OLLAMA_HOST", OLLAMA_MODEL, _call_ollama),
 }
 
 # (events per request, seconds between requests) for a provider when it runs
@@ -412,6 +445,15 @@ PROVIDERS = {
 # so one every 30 seconds stays under the cap.
 FALLBACK_PACING = {
     "groq": (20, 30.0),
+    # No rate limit to respect, but a 4B model on a CPU slows down as the
+    # prompt grows - small batches keep each request to a minute or so.
+    "ollama": (10, 0.0),
+}
+
+# Per-request timeouts for providers slower than the default. A CPU-only
+# Ollama can take minutes on one batch.
+PROVIDER_TIMEOUT = {
+    "ollama": 600,
 }
 
 
@@ -566,6 +608,8 @@ def llm_scores_chain(
         if on_provider:
             note = "" if n == 0 else f"falling back for {len(pending)} unscored events"
             on_provider(name, use_model, len(pending), note)
+        if name in PROVIDER_TIMEOUT:
+            kwargs = {**kwargs, "timeout": PROVIDER_TIMEOUT[name]}
         got = llm_scores(
             pending, profile, provider=name, model=use_model,
             batch_size=size, min_interval=interval, on_progress=on_progress, **kwargs,

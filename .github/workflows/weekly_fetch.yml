@@ -25,7 +25,7 @@ on:
         description: 'LLM ranker provider (blank = use the RANKER_PROVIDER variable)'
         required: false
         type: choice
-        options: ['', 'gemini', 'anthropic']
+        options: ['', 'gemini', 'anthropic', 'groq', 'ollama']
         default: ''
       rescore_all:
         description: 'Re-score every event, not just new ones'
@@ -77,6 +77,25 @@ jobs:
           key: events-db-${{ github.run_number }}
           restore-keys: events-db-
 
+      # The last-resort ranker: a small open model on this runner's own CPU,
+      # free (public repo) and immune to provider outages. Installing it and
+      # pulling ~3GB of weights takes a couple of minutes, so it happens in
+      # the background while fetch and geocode run, and "Wait for Ollama"
+      # below collects it. Skipped when no LLM ranking will happen at all.
+      - name: Start Ollama in the background
+        if: >-
+          (inputs.provider || vars.RANKER_PROVIDER) != '' &&
+          (contains(vars.RANKER_FALLBACK || 'groq,ollama', 'ollama') ||
+           inputs.provider == 'ollama')
+        env:
+          OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen3.5:4b' }}
+        run: |
+          nohup bash -c '
+            curl -fsSL https://ollama.com/install.sh | sh &&
+            ollama pull "$OLLAMA_MODEL"
+          ' > /tmp/ollama-setup.log 2>&1 &
+          echo "OLLAMA_SETUP_STARTED=1" >> "$GITHUB_ENV"
+
       - name: Fetch events
         run: python -m sfevents.cli --db /tmp/events.db fetch
 
@@ -100,14 +119,36 @@ jobs:
           REQUESTED: ${{ inputs.provider || vars.RANKER_PROVIDER }}
           HAS_GEMINI: ${{ secrets.GEMINI_API_KEY != '' }}
           HAS_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+          HAS_GROQ: ${{ secrets.GROQ_API_KEY != '' }}
         run: |
           case "$REQUESTED" in
+            ollama)        ;;
+            groq)          [ "$HAS_GROQ" = true ] || { echo "::warning::RANKER_PROVIDER=groq but GROQ_API_KEY is not set; skipping LLM rank"; echo "provider=" >> "$GITHUB_OUTPUT"; exit 0; } ;;
             gemini)        [ "$HAS_GEMINI" = true ] || { echo "::warning::RANKER_PROVIDER=gemini but GEMINI_API_KEY is not set; skipping LLM rank"; echo "provider=" >> "$GITHUB_OUTPUT"; exit 0; } ;;
             anthropic)     [ "$HAS_ANTHROPIC" = true ] || { echo "::warning::RANKER_PROVIDER=anthropic but ANTHROPIC_API_KEY is not set; skipping LLM rank"; echo "provider=" >> "$GITHUB_OUTPUT"; exit 0; } ;;
             '')            echo "RANKER_PROVIDER not set - shipping heuristic scores only." ;;
             *)             echo "::warning::unknown RANKER_PROVIDER '$REQUESTED'; skipping LLM rank"; echo "provider=" >> "$GITHUB_OUTPUT"; exit 0 ;;
           esac
           echo "provider=$REQUESTED" >> "$GITHUB_OUTPUT"
+
+      # Only once the model is pulled does OLLAMA_HOST get set - that is
+      # what tells the ranker the fallback is usable. If setup failed or is
+      # still going after 10 minutes, the ranker skips Ollama, not the run.
+      - name: Wait for Ollama
+        if: env.OLLAMA_SETUP_STARTED == '1' && steps.ranker.outputs.provider != ''
+        env:
+          OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen3.5:4b' }}
+        run: |
+          for _ in $(seq 120); do
+            if curl -sf http://127.0.0.1:11434/api/tags | grep -q "\"$OLLAMA_MODEL\""; then
+              echo "OLLAMA_HOST=http://127.0.0.1:11434" >> "$GITHUB_ENV"
+              echo "Ollama ready with $OLLAMA_MODEL"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::warning::Ollama wasn't ready after 10 minutes; ranking without it"
+          tail -20 /tmp/ollama-setup.log || true
 
       # Exactly one of the next two steps runs. `rank --llm` does the
       # heuristic pass itself before calling the provider, so running both
@@ -128,12 +169,14 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen3.5:4b' }}
           PROVIDER: ${{ steps.ranker.outputs.provider }}
           # Tried in order for whatever PROVIDER leaves unscored (Gemini's
           # "high demand" 503s). Groq is free with no card: add GROQ_API_KEY
-          # as a secret. Without the key the fallback is skipped, not fatal.
-          # Its batch size and spacing are its own - see rank.FALLBACK_PACING.
-          FALLBACK: ${{ vars.RANKER_FALLBACK || 'groq' }}
+          # as a secret. Ollama is the runner-local model started above. A
+          # fallback without a key/server is skipped, not fatal. Batch sizes
+          # and spacing are their own - see rank.FALLBACK_PACING.
+          FALLBACK: ${{ vars.RANKER_FALLBACK || 'groq,ollama' }}
           RESCORE_ALL: ${{ inputs.rescore_all }}
           # A manual run's `limit` input wins over the variable, so a one-off
           # "score everything" run doesn't mean editing repo settings.

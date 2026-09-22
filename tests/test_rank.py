@@ -621,3 +621,57 @@ def test_a_groq_daily_limit_is_recognised(monkeypatch):
     with pytest.raises(rank.ProviderError) as info:
         rank._post_json(rank.GROQ_URL, {}, {}, 30)
     assert info.value.daily
+
+
+def test_ollama_asks_for_a_big_enough_context_and_no_thinking(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        captured["auth"] = req.headers.get("Authorization")
+        captured["body"] = json.loads(req.data)
+        captured["timeout"] = timeout
+        reply = {"message": {"role": "assistant", "content": '[{"i":1,"score":5,"reason":"x"}]'}}
+        return io.BytesIO(json.dumps(reply).encode())
+
+    monkeypatch.setattr(rank.urllib.request, "urlopen", fake_urlopen)
+    text = rank._call_ollama("hello", rank.OLLAMA_MODEL, "127.0.0.1:11434", 600)
+
+    assert text.startswith("[")
+    assert captured["url"] == "http://127.0.0.1:11434/api/chat"
+    assert captured["auth"] is None
+    body = captured["body"]
+    assert body["stream"] is False and body["think"] is False
+    assert body["options"]["num_ctx"] >= 8192
+
+
+def test_ollama_is_the_last_resort_and_gets_a_long_timeout(monkeypatch):
+    """Gemini and Groq both down: the local model still scores everything."""
+    timeouts: list[int] = []
+
+    def local(prompt, model, host, timeout):
+        timeouts.append(timeout)
+        return _scores_all(prompt, model, host, timeout)
+
+    _two_providers(monkeypatch, _unavailable, _unavailable)
+    monkeypatch.setitem(rank.PROVIDERS, "ollama", ("OLLAMA_HOST", "tiny", local))
+    monkeypatch.setenv("OLLAMA_HOST", "http://127.0.0.1:11434")
+    rows = [{"id": i, "title": str(i)} for i in range(1, 13)]
+
+    out = rank.llm_scores_chain(rows, "p", ["first", "backup", "ollama"],
+                                sleep=lambda s: None)
+
+    assert set(out) == {"ollama:tiny"}
+    assert len(out["ollama:tiny"]) == 12
+    assert timeouts == [600, 600]  # two batches of 10 and 2
+
+
+def test_ollama_is_skipped_when_no_server_was_started(monkeypatch):
+    _two_providers(monkeypatch, _unavailable, _unavailable)
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    notes: list[str] = []
+    out = rank.llm_scores_chain([{"id": 1, "title": "A"}], "p",
+                                ["first", "backup", "ollama"], sleep=lambda s: None,
+                                on_provider=lambda n, m, k, note: notes.append(note))
+    assert out == {}
+    assert "OLLAMA_HOST not set" in notes[-1]
