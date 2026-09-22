@@ -33,6 +33,7 @@ except Exception:  # pragma: no cover - no tz database
 from .. import db
 from ..llm import FallbackLLM, NoProviderAvailable
 from ..models import Event
+from ..rank import title_key
 from .tribe import collapse_repeats
 
 API_URL = "https://secretsanfrancisco.com/wp-json/wp/v2/posts"
@@ -128,6 +129,7 @@ class SecretSFFetcher:
         )
         events: list[Event] = []
         self.covered_articles = []
+        seen: set[tuple[str, date]] = set()
         cached = extracted = failed = 0
         last_error = ""
         for post in posts:
@@ -157,7 +159,14 @@ class SecretSFFetcher:
                     db.put_extraction(self.db_path, self.name, article_id, modified, result, by)
             # A show with six showtimes is one card with "Repeats: 5 more
             # dates", as for the other sources - not six cards.
-            events.extend(collapse_repeats(to_events(post, result, self.name)))
+            for e in collapse_repeats(to_events(post, result, self.name)):
+                # Two articles about one show (a preview, then "tickets on
+                # sale") would otherwise be two cards. Posts come newest
+                # first, so the newest write-up wins.
+                key = (title_key(e.title), e.start.date())
+                if key not in seen:
+                    seen.add(key)
+                    events.append(e)
             self.covered_articles.append(article_id)
 
         self.report = f"{len(posts)} articles: {cached} cached, {extracted} extracted"

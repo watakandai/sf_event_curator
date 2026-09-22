@@ -342,3 +342,16 @@ def test_an_article_that_failed_to_extract_keeps_its_rows(tmp_path):
     f = fetcher(tmp_path, StubLLM(down=True))
     f.parse([SUNSET])
     assert f.covered_articles == []
+
+
+def test_two_articles_about_one_show_make_one_card():
+    """Seen live: a preview and a "tickets on sale" post for the same concert."""
+    show = {"title": "Candlelight: The Lord of the Rings", "start": "2026-12-04T18:30"}
+    other_date = {**show, "start": "2027-01-16T18:30"}
+    llm = StubLLM({"Sunset District": {"events": [show]},
+                   "Italian Riviera": {"events": [{**show, "title": "Candlelight - The Lord of the Rings"},
+                                                  other_date]}})
+    events = SecretSFFetcher(llm=llm).parse([SUNSET, SAUSALITO])
+    assert [(e.source_id.split(":")[0], e.start.date().isoformat()) for e in events] == [
+        ("52503", "2026-12-04"), ("52469", "2027-01-16"),
+    ]
