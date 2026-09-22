@@ -49,15 +49,17 @@ class StubLLM:
 
     available = True
 
-    def complete(self, prompt: str):
+    def complete(self, prompt: str, parse=None):
         self.prompts.append(prompt)
         if self.down:
             raise NoProviderAvailable("stub: HTTP 503: high demand")
         title = prompt.split("ARTICLE TITLE\n", 1)[1].split("\n", 1)[0]
-        for needle, reply in self.replies.items():
+        reply = '{"events": []}'
+        for needle, answer in self.replies.items():
             if needle in title:
-                return json.dumps(reply), "stub:model"
-        return '{"events": []}', "stub:model"
+                reply = json.dumps(answer)
+                break
+        return (parse(reply) if parse else reply), "stub:model"
 
 
 def fetcher(tmp_path=None, llm=None):
@@ -202,12 +204,9 @@ def test_a_provider_outage_is_retried_next_run_not_cached(tmp_path):
     assert len(f.parse([SUNSET])) == 1
 
 
-def test_an_unparseable_reply_is_not_cached(tmp_path):
-    class Garbled(StubLLM):
-        def complete(self, prompt):
-            return "no idea", "stub:model"
-
-    f = fetcher(tmp_path, Garbled())
+def test_an_unparseable_reply_is_not_cached(tmp_path, monkeypatch):
+    _providers(monkeypatch, garbled=lambda *a: '{"events": [{"title": "A" "start"}]}')
+    f = fetcher(tmp_path, FallbackLLM(["garbled"], sleep=lambda s: None))
     f.parse([SUNSET])
     assert get_extraction(f.db_path, "secretsf", str(SUNSET["id"]), SUNSET["modified"]) is None
     assert "unparseable reply" in f.report
@@ -298,3 +297,22 @@ def test_fallback_llm_with_nothing_configured_says_so(monkeypatch):
     monkeypatch.delenv("FIRST_KEY", raising=False)
     with pytest.raises(NoProviderAvailable, match="no provider configured"):
         FallbackLLM(["first"]).complete("a")
+
+
+def test_a_malformed_reply_gets_one_more_try(monkeypatch):
+    """Seen live: gpt-oss dropped a comma on 4 of 25 articles."""
+    replies = iter(['{"events": [{"title": "A" "start": "2026-09-25"}]}',
+                    '{"events": [{"title": "A", "start": "2026-09-25"}]}'])
+    _providers(monkeypatch, first=lambda *a: next(replies))
+    llm = FallbackLLM(["first"], sleep=lambda s: None)
+    result, by = llm.complete("x", parse=secretsf.parse_reply)
+    assert result == [{"title": "A", "start": "2026-09-25"}]
+
+
+def test_repeated_showtimes_become_one_card():
+    """Seen live: one bar's six showtimes came back as six events."""
+    items = [{"title": "The Nightmare Bar", "start": f"2026-10-{d:02d}T19:00"} for d in (8, 9, 12)]
+    events = SecretSFFetcher(llm=StubLLM({"Sunset District": {"events": items}})).parse([SUNSET])
+    [e] = events
+    assert e.start.day == 8
+    assert e.description.startswith("Repeats: 2 more dates through Oct 12.")

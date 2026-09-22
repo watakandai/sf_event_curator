@@ -58,8 +58,14 @@ class FallbackLLM:
     def available(self) -> bool:
         return any(name not in self.spent for name in self.providers)
 
-    def complete(self, prompt: str) -> tuple[str, str]:
-        """Returns (reply text, "provider:model" that gave it)."""
+    def complete(self, prompt: str, parse=None):
+        """Returns (reply, "provider:model" that gave it).
+
+        With `parse`, the reply is passed through it and its result returned
+        instead. A ValueError from parse - the model answered, but not in a
+        usable shape - gets one more try from the same provider (these are
+        usually one-off slips, like a dropped comma), then moves on.
+        """
         errors = []
         for name in self.providers:
             if name in self.spent:
@@ -68,15 +74,23 @@ class FallbackLLM:
             key = os.environ.get(env_var, "").strip()
             self._pace(name)
             timeout = rank.PROVIDER_TIMEOUT.get(name, self.timeout)
-            try:
-                reply = rank._call_with_retry(call, prompt, model, key, timeout, self.sleep)
-            except (urllib.error.URLError, TimeoutError, ConnectionError,
-                    ValueError, KeyError) as exc:
-                if getattr(exc, "status", None) == 429:
-                    self.spent.add(name)
-                errors.append(f"{name}: {type(exc).__name__}: {exc}")
-                continue
-            return reply, f"{name}:{model}"
+            for attempt in (1, 2) if parse else (1,):
+                if attempt > 1:
+                    self._pace(name)
+                try:
+                    reply = rank._call_with_retry(call, prompt, model, key, timeout, self.sleep)
+                except (urllib.error.URLError, TimeoutError, ConnectionError,
+                        ValueError, KeyError) as exc:
+                    if getattr(exc, "status", None) == 429:
+                        self.spent.add(name)
+                    errors.append(f"{name}: {type(exc).__name__}: {exc}")
+                    break
+                if parse is None:
+                    return reply, f"{name}:{model}"
+                try:
+                    return parse(reply), f"{name}:{model}"
+                except ValueError as exc:
+                    errors.append(f"{name}: unparseable reply: {exc}")
         if not self.providers:
             raise NoProviderAvailable(
                 f"no provider configured (tried {', '.join(self.unconfigured) or 'none'})"

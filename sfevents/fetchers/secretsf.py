@@ -33,6 +33,7 @@ except Exception:  # pragma: no cover - no tz database
 from .. import db
 from ..llm import FallbackLLM, NoProviderAvailable
 from ..models import Event
+from .tribe import collapse_repeats
 
 API_URL = "https://secretsanfrancisco.com/wp-json/wp/v2/posts"
 THINGS_TO_DO = 13  # English "Things To Do"; the Spanish copies are 740
@@ -140,22 +141,19 @@ class SecretSFFetcher:
                     failed += 1
                     continue
                 try:
-                    reply, by = llm.complete(_prompt(post))
-                    result = parse_reply(reply)
+                    result, by = llm.complete(_prompt(post), parse=parse_reply)
                 except NoProviderAvailable as exc:
+                    # Includes replies that never parsed. Not cached, so the
+                    # next run gets another go at the article.
                     failed += 1
                     last_error = str(exc)
-                    continue
-                except ValueError as exc:
-                    # The model answered but not with usable JSON - don't
-                    # cache, so the next run gets another go at it.
-                    failed += 1
-                    last_error = f"unparseable reply: {exc}"
                     continue
                 extracted += 1
                 if self.db_path:
                     db.put_extraction(self.db_path, self.name, article_id, modified, result, by)
-            events.extend(to_events(post, result, self.name))
+            # A show with six showtimes is one card with "Repeats: 5 more
+            # dates", as for the other sources - not six cards.
+            events.extend(collapse_repeats(to_events(post, result, self.name)))
 
         self.report = f"{len(posts)} articles: {cached} cached, {extracted} extracted"
         if failed:
