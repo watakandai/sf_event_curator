@@ -90,10 +90,23 @@ jobs:
         env:
           OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'qwen3.5:4b' }}
         run: |
-          nohup bash -c '
-            curl -fsSL https://ollama.com/install.sh | sh &&
-            ollama pull "$OLLAMA_MODEL"
-          ' > /tmp/ollama-setup.log 2>&1 &
+          cat > /tmp/ollama-setup.sh <<'SH'
+          set -e
+          echo "$(date -u +%T) installing"
+          curl -fsSL https://ollama.com/install.sh | sh
+          # The installer starts a systemd service but returns before it is
+          # listening, and `ollama pull` fails outright on a closed port.
+          # Wait for it, and start the server by hand if systemd didn't.
+          for i in $(seq 30); do
+            curl -sf http://127.0.0.1:11434/api/version >/dev/null && break
+            [ "$i" = 10 ] && { nohup ollama serve > /tmp/ollama-serve.log 2>&1 & }
+            sleep 2
+          done
+          echo "$(date -u +%T) server up, pulling $OLLAMA_MODEL"
+          ollama pull "$OLLAMA_MODEL" 2>&1 | tr '\r' '\n' | grep -v '^pulling.*%' || true
+          echo "$(date -u +%T) done"
+          SH
+          nohup bash /tmp/ollama-setup.sh > /tmp/ollama-setup.log 2>&1 &
           echo "OLLAMA_SETUP_STARTED=1" >> "$GITHUB_ENV"
 
       - name: Fetch events
@@ -143,12 +156,13 @@ jobs:
             if curl -sf http://127.0.0.1:11434/api/tags | grep -q "\"$OLLAMA_MODEL\""; then
               echo "OLLAMA_HOST=http://127.0.0.1:11434" >> "$GITHUB_ENV"
               echo "Ollama ready with $OLLAMA_MODEL"
+              grep -v '#' /tmp/ollama-setup.log | grep -E '^[0-9]{2}:' || true
               exit 0
             fi
             sleep 5
           done
           echo "::warning::Ollama wasn't ready after 10 minutes; ranking without it"
-          tail -20 /tmp/ollama-setup.log || true
+          grep -v '#' /tmp/ollama-setup.log | tail -20 || true
 
       # Exactly one of the next two steps runs. `rank --llm` does the
       # heuristic pass itself before calling the provider, so running both
@@ -195,7 +209,9 @@ jobs:
             esac
             args+=(--limit "$LIMIT")
           fi
-          python -m sfevents.cli --db /tmp/events.db rank --llm "${args[@]}" 2>&1 | tee /tmp/rank.log
+          # -u: unbuffered, or stdout (the batches) lands in the log after
+          # stderr (the verdict) and the log reads backwards.
+          python -u -m sfevents.cli --db /tmp/events.db rank --llm "${args[@]}" 2>&1 | tee /tmp/rank.log
 
       - name: Export to static JSON
         run: |
@@ -230,5 +246,5 @@ jobs:
             grep -E "llm:|batch [0-9]+" /tmp/rank.log | cut -c1-200 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "::error title=LLM ranking failed::$(grep -E '^llm: (FAILED|SKIPPED|scored)' /tmp/rank.log | tail -1)"
+          echo "::error title=LLM ranking failed::$(grep -E '^llm: (FAILED|SKIPPED)' /tmp/rank.log | tail -1)"
           exit 1
