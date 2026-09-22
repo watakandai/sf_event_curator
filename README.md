@@ -6,8 +6,9 @@ read-only static export for GitHub Pages.
 
 ## Features
 
-- **Nine sources** (~1,300 upcoming events): curated annual-events and
+- **Ten sources** (~1,300 upcoming events): curated annual-events and
   seasons lists plus [SF Funcheap](https://sf.funcheap.com),
+  [Secret San Francisco](https://secretsanfrancisco.com)'s editorial picks,
   [DoTheBay](https://dothebay.com), [SF Rec & Parks](https://sfrecpark.org),
   [19hz](https://19hz.info), and the Santa Cruz, Sausalito and Bodega Bay
   visitor calendars for day trips
@@ -269,6 +270,18 @@ tests/
 **SF Funcheap** — RSS feed with a custom namespace (start/end time, cost,
 venue, categories). No API key needed, and the richest structured source
 available.
+
+**Secret San Francisco** — editor-picked events, published as news
+articles rather than listings, so the dates and venues are in prose. The
+fetcher pulls the last 3 weeks of "Things To Do" posts from the site's public
+WordPress API (Sponsored posts excluded) and has an LLM turn each article
+into zero or more events: Groq first, then Gemini, so extraction doesn't
+spend the small Gemini quota the ranker needs (`SECRETSF_PROVIDERS`
+overrides the order). The model's answer is checked, not trusted: an entry
+dated before the article or over a year after it is dropped. Each article
+is extracted once and cached in the database by its last-edit time, so a
+week costs about 10 model calls; with no key set, the source just adds
+nothing new.
 
 **DoTheBay** — has no public RSS or API, so this scrapes server-rendered
 HTML instead, matching by anchor URL pattern (`/events/YYYY/M/D/slug`,

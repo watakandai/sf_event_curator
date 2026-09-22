@@ -53,6 +53,23 @@ CREATE TABLE IF NOT EXISTS geocache (
 );
 """
 
+# What an LLM pulled out of an article, keyed by the article and its last
+# edit. Editorial sources (Secret SF) publish events as prose, so turning
+# one into dates and venues costs a model call - this makes that a one-time
+# cost per article revision, not a weekly one. `result` is the JSON the
+# fetcher parsed, kept so a run with every provider down still has events.
+EXTRACTION_SCHEMA = """
+CREATE TABLE IF NOT EXISTS article_extractions (
+    source TEXT NOT NULL,
+    article_id TEXT NOT NULL,
+    modified TEXT NOT NULL,
+    result TEXT NOT NULL,
+    extracted_by TEXT NOT NULL,
+    extracted_at TEXT NOT NULL,
+    PRIMARY KEY (source, article_id)
+);
+"""
+
 INDEXES = """
 CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_ts);
 CREATE INDEX IF NOT EXISTS idx_events_score ON events(score);
@@ -97,6 +114,7 @@ def init_db(db_path: str | Path) -> None:
     with connect(db_path) as conn:
         conn.executescript(SCHEMA_TABLE)
         conn.executescript(GEOCACHE_SCHEMA)
+        conn.executescript(EXTRACTION_SCHEMA)
         existing = {r["name"] for r in conn.execute("PRAGMA table_info(events)")}
         for column, decl in MIGRATIONS.items():
             if column not in existing:
@@ -344,3 +362,55 @@ def set_coordinates(db_path: str | Path, coords: dict[int, tuple[float, float]])
                 "UPDATE events SET lat = ?, lon = ? WHERE id = ?", (lat, lon, event_id)
             )
     return len(coords)
+
+
+def get_extraction(db_path: str | Path, source: str, article_id: str,
+                   modified: str) -> list | dict | None:
+    """The cached extraction for this revision of an article, if any."""
+    with connect(db_path) as conn:
+        row = conn.execute(
+            """SELECT result FROM article_extractions
+                WHERE source = ? AND article_id = ? AND modified = ?""",
+            (source, article_id, modified),
+        ).fetchone()
+    return json.loads(row["result"]) if row else None
+
+
+def put_extraction(db_path: str | Path, source: str, article_id: str,
+                   modified: str, result, extracted_by: str) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    with connect(db_path) as conn:
+        conn.execute(
+            """INSERT INTO article_extractions
+                   (source, article_id, modified, result, extracted_by, extracted_at)
+               VALUES (?,?,?,?,?,?)
+               ON CONFLICT(source, article_id) DO UPDATE SET
+                 modified=excluded.modified, result=excluded.result,
+                 extracted_by=excluded.extracted_by, extracted_at=excluded.extracted_at""",
+            (source, article_id, modified, json.dumps(result), extracted_by, now),
+        )
+
+
+def prune_article_events(db_path: str | Path, source: str, article_ids,
+                         keep_source_ids) -> int:
+    """Drop rows an article used to produce but no longer does.
+
+    Upserts never delete, and an article's events can change under it - the
+    site edits the article, or the extraction merges six showtimes into one
+    card - leaving the old rows behind as duplicates. For every article this
+    run covered (source_id "<article id>:..."), only the rows it produced
+    now survive. Articles outside this run's window are left alone.
+    """
+    keep = set(keep_source_ids)
+    removed = 0
+    with connect(db_path) as conn:
+        for article_id in set(article_ids):
+            rows = conn.execute(
+                "SELECT id, source_id FROM events WHERE source = ? AND source_id LIKE ?",
+                (source, f"{article_id}:%"),
+            ).fetchall()
+            stale = [r["id"] for r in rows if r["source_id"] not in keep]
+            for event_id in stale:
+                conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
+            removed += len(stale)
+    return removed

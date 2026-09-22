@@ -109,8 +109,15 @@ jobs:
           nohup bash /tmp/ollama-setup.sh > /tmp/ollama-setup.log 2>&1 &
           echo "OLLAMA_SETUP_STARTED=1" >> "$GITHUB_ENV"
 
+      # Secret SF publishes events as articles, so its fetcher asks an LLM
+      # to pull out dates and venues - Groq first, to leave Gemini's small
+      # daily quota to the ranker. Each article is extracted once and cached
+      # in the database. Without keys it just returns no new events.
       - name: Fetch events
-        run: python -m sfevents.cli --db /tmp/events.db fetch
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python -u -m sfevents.cli --db /tmp/events.db fetch
 
       # Coordinates for the calendar's map view. Nominatim asks for no more
       # than one request per second, so this is capped per run and cached in

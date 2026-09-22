@@ -11,13 +11,14 @@ from .db import (
     init_db, upsert_events, query_events, row_to_dict, set_scores,
     set_heuristic_scores, unscored_events,
     get_geocache, geocache_misses, put_geocache, set_coordinates,
-    clear_coordinates,
+    clear_coordinates, prune_article_events,
 )
 from .fetchers.annual import AnnualEventsFetcher
 from .fetchers.dothebay import DoTheBayFetcher
 from .fetchers.funcheap import FuncheapFetcher
 from .fetchers.nineteenhz import NineteenHzFetcher
 from .fetchers.seasonal import SeasonalFetcher
+from .fetchers.secretsf import SecretSFFetcher
 from .fetchers.sfrecpark import SFRecParkFetcher
 from .fetchers.tribe import TribeEventsFetcher
 
@@ -29,6 +30,8 @@ FETCHERS = [
     SFRecParkFetcher(),
     NineteenHzFetcher(),
     SeasonalFetcher(),
+    # Editorial picks written as news articles; an LLM pulls the events out.
+    SecretSFFetcher(),
     # Day trips: visitor-bureau calendars that all run the same WordPress
     # events plugin. South Lake Tahoe (tahoesouth.com) works too, but it's
     # ~800 listings, mostly bar nights, 3.5h+ away.
@@ -139,6 +142,9 @@ def main() -> None:
 
 def _cmd_fetch(args) -> None:
     for f in FETCHERS:
+        # Sources that cache per-item work (LLM extractions) keep it here.
+        if hasattr(f, "bind_db"):
+            f.bind_db(args.db)
         try:
             events = f.fetch()
         except Exception as exc:
@@ -146,6 +152,14 @@ def _cmd_fetch(args) -> None:
             continue
         upsert_events(args.db, events)
         print(f"{f.name}: {len(events)} events fetched")
+        if getattr(f, "covered_articles", None):
+            pruned = prune_article_events(
+                args.db, f.name, f.covered_articles, [e.source_id for e in events]
+            )
+            if pruned:
+                print(f"  removed {pruned} stale events from re-extracted articles")
+        if getattr(f, "report", ""):
+            print(f"  {f.report}")
         if not events and f.name in FRAGILE_SOURCES:
             print(
                 f"  warning: {f.name} returned 0 events - this source is HTML-scraped "
