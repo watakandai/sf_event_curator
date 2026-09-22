@@ -97,6 +97,9 @@ class SecretSFFetcher:
         self.llm = llm
         self.db_path = None
         self.report = ""
+        # Article ids whose events this run fully knows (cached or freshly
+        # extracted) - the CLI prunes their stale rows, and nothing else.
+        self.covered_articles: list[str] = []
 
     def bind_db(self, db_path) -> None:
         """Where extractions are cached. Without one, every run re-extracts."""
@@ -124,6 +127,7 @@ class SecretSFFetcher:
             list(self.providers or _providers_from_env()), min_interval=PACING
         )
         events: list[Event] = []
+        self.covered_articles = []
         cached = extracted = failed = 0
         last_error = ""
         for post in posts:
@@ -154,6 +158,7 @@ class SecretSFFetcher:
             # A show with six showtimes is one card with "Repeats: 5 more
             # dates", as for the other sources - not six cards.
             events.extend(collapse_repeats(to_events(post, result, self.name)))
+            self.covered_articles.append(article_id)
 
         self.report = f"{len(posts)} articles: {cached} cached, {extracted} extracted"
         if failed:

@@ -316,3 +316,29 @@ def test_repeated_showtimes_become_one_card():
     [e] = events
     assert e.start.day == 8
     assert e.description.startswith("Repeats: 2 more dates through Oct 12.")
+
+
+def test_an_articles_old_events_are_replaced_not_left_as_duplicates(tmp_path):
+    """Seen live: six per-showtime rows survived the switch to one card."""
+    from sfevents.db import prune_article_events, query_events, upsert_events
+    f = fetcher(tmp_path)
+    shows = [{"title": "Show", "start": f"2026-10-{d:02d}"} for d in (8, 9)]
+    old = secretsf.to_events(SUNSET, shows, "secretsf")
+    unrelated = secretsf.to_events({**SAUSALITO, "id": 1}, [{"title": "B", "start": "2026-09-25"}],
+                                   "secretsf")
+    upsert_events(f.db_path, old + unrelated)
+
+    new = f.parse([SUNSET])
+    upsert_events(f.db_path, new)
+    removed = prune_article_events(f.db_path, "secretsf", f.covered_articles,
+                                   [e.source_id for e in new])
+
+    assert removed == 2  # 52503:2026-10-08 and :10-09 -> only :09-25 now
+    ids = sorted(r["source_id"] for r in query_events(f.db_path))
+    assert ids == ["1:2026-09-25", "52503:2026-09-25"]
+
+
+def test_an_article_that_failed_to_extract_keeps_its_rows(tmp_path):
+    f = fetcher(tmp_path, StubLLM(down=True))
+    f.parse([SUNSET])
+    assert f.covered_articles == []

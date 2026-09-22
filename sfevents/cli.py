@@ -11,7 +11,7 @@ from .db import (
     init_db, upsert_events, query_events, row_to_dict, set_scores,
     set_heuristic_scores, unscored_events,
     get_geocache, geocache_misses, put_geocache, set_coordinates,
-    clear_coordinates,
+    clear_coordinates, prune_article_events,
 )
 from .fetchers.annual import AnnualEventsFetcher
 from .fetchers.dothebay import DoTheBayFetcher
@@ -152,6 +152,12 @@ def _cmd_fetch(args) -> None:
             continue
         upsert_events(args.db, events)
         print(f"{f.name}: {len(events)} events fetched")
+        if getattr(f, "covered_articles", None):
+            pruned = prune_article_events(
+                args.db, f.name, f.covered_articles, [e.source_id for e in events]
+            )
+            if pruned:
+                print(f"  removed {pruned} stale events from re-extracted articles")
         if getattr(f, "report", ""):
             print(f"  {f.report}")
         if not events and f.name in FRAGILE_SOURCES:

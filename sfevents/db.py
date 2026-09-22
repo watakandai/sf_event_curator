@@ -389,3 +389,28 @@ def put_extraction(db_path: str | Path, source: str, article_id: str,
                  extracted_by=excluded.extracted_by, extracted_at=excluded.extracted_at""",
             (source, article_id, modified, json.dumps(result), extracted_by, now),
         )
+
+
+def prune_article_events(db_path: str | Path, source: str, article_ids,
+                         keep_source_ids) -> int:
+    """Drop rows an article used to produce but no longer does.
+
+    Upserts never delete, and an article's events can change under it - the
+    site edits the article, or the extraction merges six showtimes into one
+    card - leaving the old rows behind as duplicates. For every article this
+    run covered (source_id "<article id>:..."), only the rows it produced
+    now survive. Articles outside this run's window are left alone.
+    """
+    keep = set(keep_source_ids)
+    removed = 0
+    with connect(db_path) as conn:
+        for article_id in set(article_ids):
+            rows = conn.execute(
+                "SELECT id, source_id FROM events WHERE source = ? AND source_id LIKE ?",
+                (source, f"{article_id}:%"),
+            ).fetchall()
+            stale = [r["id"] for r in rows if r["source_id"] not in keep]
+            for event_id in stale:
+                conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
+            removed += len(stale)
+    return removed
