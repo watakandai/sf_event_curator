@@ -22,7 +22,7 @@ read-only static export for GitHub Pages.
   of - stored as recurrence rules, not dates, so the list doesn't rot
 - **Ranking**: a free offline heuristic always runs; optionally an LLM scores
   every event against `profile.md` - your background and taste in plain
-  English. Pluggable provider: Claude or Gemini
+  English. Pluggable provider: Claude, Gemini or Groq, with fallbacks
 - **Calendar home page**: click a day and the list under the grid ranks
   that **Day**, the **Week**, or the **Month** from it (today through the
   same date next month by default), best match first, 5 per page for up to
@@ -146,6 +146,12 @@ python3 -m sfevents.cli rank --llm --provider gemini
 |---|---|---|---|
 | `gemini` | `GEMINI_API_KEY` | `gemini-3.6-flash` | Cheapest option |
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-5` | `--model claude-haiku-4-5-20251001` is cheaper |
+| `groq` | `GROQ_API_KEY` | `openai/gpt-oss-120b` | Free tier, no card; capped at 8K tokens/minute |
+
+`--fallback groq` hands whatever the main provider leaves unscored - Gemini's
+"high demand" 503s, a spent quota - to the next provider in the list, in its
+own smaller batches with a pause between them (`FALLBACK_PACING` in
+`rank.py`). Each score records the model that actually gave it.
 
 GitHub Models used to be a third, free option; GitHub retired the service on
 July 30, 2026, so it was removed.
@@ -370,6 +376,13 @@ If a per-minute limit is hit anyway, the ranker waits and retries; once the
 daily quota is used up it stops and leaves the rest for the next run. Runs
 are queued, never overlapped, so two runs can't split one quota or lose each
 other's scores.
+
+Events Gemini doesn't score go to Groq (`RANKER_FALLBACK`, default `groq`)
+once the `GROQ_API_KEY` secret is set. **A run that still leaves events
+unscored goes red**: `rank --llm` exits non-zero, the site ships anyway with
+heuristic scores for the rest, and the failing "Alert" step lists the failed
+batches on the run page. GitHub emails a failed scheduled run to whoever last
+edited the cron line.
 
 The workflow **caches the SQLite database between runs** — that's what makes
 LLM ranking affordable, since only unseen events are scored. Losing the cache

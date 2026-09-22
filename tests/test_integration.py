@@ -449,6 +449,33 @@ def test_a_fully_scored_llm_run_exits_cleanly(tmp_path, fake_network,
              "--provider", "stub", "--profile", str(profile)])
 
 
+def test_fallback_scores_are_kept_and_credited_to_their_model(
+        tmp_path, fake_network, only_fixture_fetchers, stub_provider, monkeypatch):
+    """Gemini down, Groq up: the run succeeds and each row says who scored it."""
+    from sfevents import rank as ranking
+
+    def down(prompt, model, key, timeout):
+        raise ranking.ProviderError("HTTP 503: high demand", status=503)
+
+    monkeypatch.setitem(ranking.PROVIDERS, "down", ("DOWN_KEY", "down-model", down))
+    monkeypatch.setenv("DOWN_KEY", "present")
+    monkeypatch.setitem(ranking.FALLBACK_PACING, "stub", (50, 0))
+    monkeypatch.setattr(ranking, "RETRY_WAITS", (0, 0, 0))
+    db_path = tmp_path / "events.db"
+    profile = tmp_path / "profile.md"
+    profile.write_text("I like free outdoor festivals.\n")
+    argv = ["--db", str(db_path), "rank", "--llm", "--provider", "down",
+            "--fallback", "stub", "--profile", str(profile)]
+
+    run_cli(["--db", str(db_path), "fetch"])
+    output = run_cli(argv)  # no SystemExit: everything got scored
+
+    assert "llm: scored 7/7" in output, output
+    assert {r["scored_by"] for r in query_events(db_path)} == {"stub:stub-model"}
+    # Marked done for this profile, so next week doesn't re-send them.
+    assert "nothing to do" in run_cli(argv)
+
+
 def test_export_gives_each_event_a_stable_key(tmp_path):
     """docs/plans.json pitches an event by source:source_id, not the db id."""
     import json

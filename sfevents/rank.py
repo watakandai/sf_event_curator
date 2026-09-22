@@ -11,8 +11,9 @@ Two rankers, deliberately layered:
   person want to go?", reading a plain-English profile the user maintains in
   profile.md. It needs a key and costs money, so it's opt-in, batched, and cached by profile revision - only
   events that have never been scored against the current profile are sent.
-  Which model does the rating is a swappable provider - Claude or Gemini -
-  see PROVIDERS.
+  Which model does the rating is a swappable provider - Claude, Gemini or
+  Groq - see PROVIDERS. `llm_scores_chain` adds fallbacks: whatever the
+  first provider leaves unscored (a 503, a spent quota) goes to the next.
 
 Keeping both matters: the heuristic is the floor when there's no key, no
 network, or a rate limit, and it's what the LLM's output gets sanity-checked
@@ -35,6 +36,8 @@ ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 ANTHROPIC_MODEL = "claude-sonnet-5"
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 GEMINI_MODEL = "gemini-3.6-flash"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL = "openai/gpt-oss-120b"
 
 # Words that mark an event as a civic/large-scale occasion rather than a
 # routine listing. Deliberately about the KIND of event, not its quality.
@@ -298,11 +301,15 @@ def _post_json(url: str, headers: dict, payload: dict, timeout: int) -> dict:
         quota = re.search(r'"quotaId"\s*:\s*"([^"]+)"', body)
         if quota:
             detail = f"quota {quota.group(1)} exhausted"
+        # Groq names the limit in prose: "... on tokens per day (TPD)".
+        daily = (bool(quota) and "PerDay" in quota.group(1)) or (
+            exc.code == 429 and re.search(r"per day", body, re.I) is not None
+        )
         raise ProviderError(
             f"HTTP {exc.code}: {detail}",
             status=exc.code,
             retry_after=_retry_after(exc.headers, body),
-            daily=bool(quota) and "PerDay" in quota.group(1),
+            daily=daily,
         ) from None
 
 
@@ -361,6 +368,33 @@ def _call_gemini(prompt: str, model: str, api_key: str, timeout: int) -> str:
     return "".join(part.get("text", "") for part in parts)
 
 
+def _chat_completions(url: str, prompt: str, model: str, api_key: str,
+                      timeout: int, **extra) -> str:
+    """The OpenAI-style request most other providers (Groq included) accept."""
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    data = _post_json(
+        url,
+        headers,
+        {"model": model, "messages": [{"role": "user", "content": prompt}], **extra},
+        timeout,
+    )
+    choices = data.get("choices") or []
+    if not choices:
+        raise ValueError(f"no choices in reply: {str(data)[:200]}")
+    return choices[0].get("message", {}).get("content") or ""
+
+
+def _call_groq(prompt: str, model: str, api_key: str, timeout: int) -> str:
+    # gpt-oss is a reasoning model. Low effort keeps the hidden reasoning -
+    # which counts against Groq's tokens-per-minute cap - short, and
+    # include_reasoning=False keeps it out of the reply we parse.
+    return _chat_completions(
+        GROQ_URL, prompt, model, api_key, timeout,
+        reasoning_effort="low", include_reasoning=False,
+        max_completion_tokens=4096,
+    )
+
+
 # Each entry is (env var holding the key, default model, call function). The
 # call signature is (prompt, model, key, timeout) -> reply text, so adding a
 # provider is one function plus one line here - nothing else in this module,
@@ -368,6 +402,16 @@ def _call_gemini(prompt: str, model: str, api_key: str, timeout: int) -> str:
 PROVIDERS = {
     "anthropic": ("ANTHROPIC_API_KEY", ANTHROPIC_MODEL, _call_anthropic),
     "gemini": ("GEMINI_API_KEY", GEMINI_MODEL, _call_gemini),
+    "groq": ("GROQ_API_KEY", GROQ_MODEL, _call_groq),
+}
+
+# (events per request, seconds between requests) for a provider when it runs
+# as a fallback, where the CLI's --batch-size/--min-interval (tuned for the
+# primary) don't apply. Groq's free tier caps tokens per minute (8K on
+# gpt-oss-120b), not requests per day: a 20-event request is ~2-3K tokens,
+# so one every 30 seconds stays under the cap.
+FALLBACK_PACING = {
+    "groq": (20, 30.0),
 }
 
 
@@ -477,3 +521,56 @@ def llm_scores(
         if on_progress:
             on_progress(start, len(batch), f"{len(scored)} scored")
     return out
+
+
+def llm_scores_chain(
+    rows: list[dict],
+    profile: str,
+    providers: list[str],
+    *,
+    model: str | None = None,
+    batch_size: int = 20,
+    min_interval: float = 0,
+    on_progress=None,
+    on_provider=None,
+    **kwargs,
+) -> dict[str, dict[int, tuple[float, str]]]:
+    """Score rows with providers[0], then hand what it missed to the next.
+
+    Returns {"provider:model": {event id: (score, reason)}}, so each score
+    keeps a record of which model actually gave it. `model`, `batch_size`
+    and `min_interval` apply to the first provider; fallbacks use their own
+    default model and FALLBACK_PACING. A fallback with no key configured is
+    skipped (reported through on_provider) rather than failing the run -
+    only an unusable first provider is an error.
+    """
+    for name in providers:
+        if name not in PROVIDERS:
+            raise ValueError(f"unknown provider {name!r}; expected one of {sorted(PROVIDERS)}")
+
+    results: dict[str, dict[int, tuple[float, str]]] = {}
+    pending = rows
+    for n, name in enumerate(providers):
+        if not pending:
+            break
+        env_var, default_model, _ = PROVIDERS[name]
+        if n and not os.environ.get(env_var, "").strip():
+            if on_provider:
+                on_provider(name, None, len(pending), f"skipped ({env_var} not set)")
+            continue
+        use_model = model if n == 0 and model else default_model
+        size, interval = (
+            (batch_size, min_interval) if n == 0
+            else FALLBACK_PACING.get(name, (batch_size, min_interval))
+        )
+        if on_provider:
+            note = "" if n == 0 else f"falling back for {len(pending)} unscored events"
+            on_provider(name, use_model, len(pending), note)
+        got = llm_scores(
+            pending, profile, provider=name, model=use_model,
+            batch_size=size, min_interval=interval, on_progress=on_progress, **kwargs,
+        )
+        if got:
+            results[f"{name}:{use_model}"] = got
+        pending = [r for r in pending if r["id"] not in got]
+    return results

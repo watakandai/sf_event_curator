@@ -127,7 +127,13 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           PROVIDER: ${{ steps.ranker.outputs.provider }}
+          # Tried in order for whatever PROVIDER leaves unscored (Gemini's
+          # "high demand" 503s). Groq is free with no card: add GROQ_API_KEY
+          # as a secret. Without the key the fallback is skipped, not fatal.
+          # Its batch size and spacing are its own - see rank.FALLBACK_PACING.
+          FALLBACK: ${{ vars.RANKER_FALLBACK || 'groq' }}
           RESCORE_ALL: ${{ inputs.rescore_all }}
           # A manual run's `limit` input wins over the variable, so a one-off
           # "score everything" run doesn't mean editing repo settings.
@@ -138,7 +144,7 @@ jobs:
           BATCH_SIZE: ${{ vars.RANKER_BATCH_SIZE || 50 }}
           MIN_INTERVAL: ${{ vars.RANKER_MIN_INTERVAL || 15 }}
         run: |
-          args=(--provider "$PROVIDER" --batch-size "$BATCH_SIZE" --min-interval "$MIN_INTERVAL")
+          args=(--provider "$PROVIDER" --fallback "$FALLBACK" --batch-size "$BATCH_SIZE" --min-interval "$MIN_INTERVAL")
           [ "$RESCORE_ALL" = true ] && args+=(--rescore-all)
           if [ -n "$LIMIT" ]; then
             case "$LIMIT" in

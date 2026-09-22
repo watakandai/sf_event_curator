@@ -81,6 +81,11 @@ def main() -> None:
     rank_parser.add_argument(
         "--provider", choices=sorted(ranking.PROVIDERS), default="anthropic",
     )
+    rank_parser.add_argument(
+        "--fallback", default="",
+        help="comma-separated providers to try, in order, for events --provider "
+             "left unscored (e.g. groq); ones without a key are skipped",
+    )
     rank_parser.add_argument("--model", default=None, help="override the provider default")
     rank_parser.add_argument("--profile", default=str(ranking.DEFAULT_PROFILE))
     rank_parser.add_argument(
@@ -256,24 +261,46 @@ def _cmd_rank(args) -> bool:
         print(f"llm: nothing to do - all events already scored for profile {phash}")
         return True
 
-    print(f"llm: sending {len(todo)} events to {args.provider}/{model} in batches of {args.batch_size}")
+    fallbacks = [p.strip() for p in args.fallback.split(",") if p.strip()]
+    batch_no = 0
+
+    def on_provider(name: str, used_model: str | None, pending: int, note: str) -> None:
+        nonlocal batch_no
+        batch_no = 0
+        if used_model is None:
+            print(f"llm: {name} {note}")
+        elif note:
+            print(f"llm: {name}/{used_model} {note}")
+        else:
+            print(f"llm: sending {pending} events to {name}/{used_model} "
+                  f"in batches of {args.batch_size}")
 
     def progress(offset: int, size: int, note: str) -> None:
-        print(f"  batch {offset // args.batch_size + 1} ({size} events): {note}")
+        nonlocal batch_no
+        batch_no += 1
+        print(f"  batch {batch_no} ({size} events): {note}")
 
     try:
-        llm = ranking.llm_scores(
-            todo, profile,
-            provider=args.provider, model=model,
+        by_model = ranking.llm_scores_chain(
+            todo, profile, [args.provider, *fallbacks],
+            model=model,
             batch_size=args.batch_size, min_interval=args.min_interval,
-            on_progress=progress,
+            on_progress=progress, on_provider=on_provider,
         )
     except (RuntimeError, ValueError) as exc:
         print(f"llm: SKIPPED ({exc})", file=sys.stderr)
         return False
 
-    if llm:
-        set_scores(args.db, llm, scored_by=f"{args.provider}:{model}", profile_hash=phash)
+    # The hash is the primary model's even for fallback scores: it marks the
+    # event as done for this profile, so next week doesn't re-send it.
+    # scored_by keeps the truth about which model gave the score.
+    llm: dict = {}
+    for scored_by, scores in by_model.items():
+        set_scores(args.db, scores, scored_by=scored_by, profile_hash=phash)
+        llm.update(scores)
+    if len(by_model) > 1:
+        detail = ", ".join(f"{k} {len(v)}" for k, v in by_model.items())
+        print(f"llm: by model: {detail}")
     print(f"llm: scored {len(llm)}/{len(todo)} events for profile {phash}")
     if len(llm) < len(todo):
         print(

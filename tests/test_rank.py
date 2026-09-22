@@ -490,3 +490,134 @@ def test_the_llm_sees_where_an_event_is_and_how_long_it_runs():
     })
     assert "until=2027-04-30" in line
     assert "address=Inverness" in line
+
+
+# ------------------------------ fallbacks -------------------------------
+
+def _scores_all(prompt, model, key, timeout):
+    import re
+    batch = re.findall(r"^(\d+)\.\s", prompt, re.MULTILINE)
+    return json.dumps([{"i": int(i), "score": 70, "reason": model} for i in batch])
+
+
+def _unavailable(prompt, model, key, timeout):
+    raise rank.ProviderError("HTTP 503: high demand", status=503)
+
+
+def _two_providers(monkeypatch, primary, fallback, fallback_key="y"):
+    monkeypatch.setitem(rank.PROVIDERS, "first", ("FIRST_KEY", "first-m", primary))
+    monkeypatch.setitem(rank.PROVIDERS, "backup", ("BACKUP_KEY", "backup-m", fallback))
+    monkeypatch.setitem(rank.FALLBACK_PACING, "backup", (2, 30.0))
+    monkeypatch.setenv("FIRST_KEY", "x")
+    if fallback_key:
+        monkeypatch.setenv("BACKUP_KEY", fallback_key)
+    else:
+        monkeypatch.delenv("BACKUP_KEY", raising=False)
+    monkeypatch.setattr(rank, "RETRY_WAITS", (0, 0, 0))
+
+
+def test_what_the_primary_misses_goes_to_the_fallback(monkeypatch):
+    """The Actions failure this exists for: Gemini 503'd every batch."""
+    _two_providers(monkeypatch, _unavailable, _scores_all)
+    rows = [{"id": i, "title": str(i)} for i in range(1, 5)]
+
+    out = rank.llm_scores_chain(rows, "p", ["first", "backup"], sleep=lambda s: None)
+
+    assert set(out) == {"backup:backup-m"}
+    assert set(out["backup:backup-m"]) == {1, 2, 3, 4}
+
+
+def test_the_fallback_only_sees_events_the_primary_missed(monkeypatch):
+    calls = {"n": 0}
+
+    def first_batch_only(prompt, model, key, timeout):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return json.dumps([{"i": 1, "score": 10, "reason": "ok"},
+                               {"i": 2, "score": 20, "reason": "ok"}])
+        raise rank.ProviderError("HTTP 400: bad", status=400)
+
+    sent: list[str] = []
+
+    def backup(prompt, model, key, timeout):
+        sent.append(prompt)
+        return _scores_all(prompt, model, key, timeout)
+
+    _two_providers(monkeypatch, first_batch_only, backup)
+    rows = [{"id": i, "title": f"Event{i}"} for i in range(1, 5)]
+
+    out = rank.llm_scores_chain(rows, "p", ["first", "backup"], batch_size=2,
+                                sleep=lambda s: None)
+
+    assert set(out["first:first-m"]) == {1, 2}
+    assert set(out["backup:backup-m"]) == {3, 4}
+    assert all("Event1" not in p and "Event2" not in p for p in sent)
+
+
+def test_the_fallback_is_paced_by_its_own_limits(monkeypatch):
+    """Groq caps tokens per minute: small batches, spaced out."""
+    _two_providers(monkeypatch, _unavailable, _scores_all)
+    waits: list[float] = []
+    clock = iter(range(0, 1000, 1))
+    rows = [{"id": i, "title": str(i)} for i in range(1, 7)]
+
+    out = rank.llm_scores_chain(rows, "p", ["first", "backup"], batch_size=50,
+                                sleep=waits.append, clock=lambda: next(clock))
+
+    assert len(out["backup:backup-m"]) == 6
+    # 3 batches of 2; the 2nd and 3rd wait out the 30s spacing.
+    assert [w for w in waits if w > 0] == [29, 29]
+
+
+def test_a_fallback_without_a_key_is_skipped_not_fatal(monkeypatch):
+    _two_providers(monkeypatch, _unavailable, _scores_all, fallback_key=None)
+    notes: list[str] = []
+
+    out = rank.llm_scores_chain([{"id": 1, "title": "A"}], "p", ["first", "backup"],
+                                sleep=lambda s: None,
+                                on_provider=lambda n, m, k, note: notes.append(note))
+
+    assert out == {}
+    assert "BACKUP_KEY not set" in notes[-1]
+
+
+def test_nothing_goes_to_the_fallback_when_the_primary_succeeds(monkeypatch):
+    _two_providers(monkeypatch, _scores_all,
+                   lambda *a: pytest.fail("fallback should not be called"))
+    out = rank.llm_scores_chain([{"id": 1, "title": "A"}], "p", ["first", "backup"])
+    assert set(out) == {"first:first-m"}
+
+
+def test_groq_sends_an_openai_style_request(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        captured["auth"] = req.headers.get("Authorization")
+        captured["body"] = json.loads(req.data)
+        reply = {"choices": [{"message": {"content": '[{"i":1,"score":5,"reason":"x"}]'}}]}
+        return io.BytesIO(json.dumps(reply).encode())
+
+    monkeypatch.setattr(rank.urllib.request, "urlopen", fake_urlopen)
+    text = rank._call_groq("hello", rank.GROQ_MODEL, "gsk_test", 30)
+
+    assert text.startswith("[")
+    assert captured["url"] == rank.GROQ_URL
+    assert captured["auth"] == "Bearer gsk_test"
+    assert captured["body"]["model"] == "openai/gpt-oss-120b"
+    assert captured["body"]["messages"] == [{"role": "user", "content": "hello"}]
+
+
+def test_a_groq_daily_limit_is_recognised(monkeypatch):
+    import urllib.error
+
+    body = (b'{"error":{"message":"Rate limit reached for model openai/gpt-oss-120b '
+            b'on tokens per day (TPD): Limit 200000, Used 199000"}}')
+
+    def boom(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 429, "Too Many", {}, io.BytesIO(body))
+
+    monkeypatch.setattr(rank.urllib.request, "urlopen", boom)
+    with pytest.raises(rank.ProviderError) as info:
+        rank._post_json(rank.GROQ_URL, {}, {}, 30)
+    assert info.value.daily
