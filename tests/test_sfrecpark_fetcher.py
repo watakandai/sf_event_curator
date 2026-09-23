@@ -83,3 +83,14 @@ def test_month_window_walks_forward_across_the_year_boundary():
     assert list(_month_window(date(2026, 11, 15), 4)) == [
         (2026, 11), (2026, 12), (2027, 1), (2027, 2),
     ]
+
+
+def test_facility_hours_and_meetings_are_not_events():
+    from sfevents.fetchers.sfrecpark import is_event
+    assert not is_event("Cycle Track Open After 6:45 PM")
+    assert not is_event("Cycle Track Closed All Day Due to Special Event")
+    assert not is_event("Joint Zoo Committee")
+    assert not is_event("Recreation and Park Commission Meeting")
+    assert not is_event("PROSAC")
+    assert is_event("Free Dance Fitness Class by Rae Studios")
+    assert is_event("Sunset Dunes Community Cleanup")
