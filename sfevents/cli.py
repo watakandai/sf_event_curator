@@ -11,8 +11,9 @@ from .db import (
     init_db, upsert_events, query_events, row_to_dict, set_scores,
     set_heuristic_scores, unscored_events,
     get_geocache, geocache_misses, put_geocache, set_coordinates,
-    clear_coordinates, prune_article_events,
+    clear_coordinates, prune_article_events, drop_events,
 )
+from .dedupe import dedupe
 from .fetchers.annual import AnnualEventsFetcher
 from .fetchers.dothebay import DoTheBayFetcher
 from .fetchers.funcheap import FuncheapFetcher
@@ -158,6 +159,10 @@ def _cmd_fetch(args) -> None:
             )
             if pruned:
                 print(f"  removed {pruned} stale events from re-extracted articles")
+        if hasattr(f, "is_event"):
+            dropped = drop_events(args.db, f.name, f.is_event)
+            if dropped:
+                print(f"  removed {dropped} stored listings that aren't events")
         if getattr(f, "report", ""):
             print(f"  {f.report}")
         if not events and f.name in FRAGILE_SOURCES:
@@ -168,8 +173,15 @@ def _cmd_fetch(args) -> None:
             )
 
 
+def _keyed(event: dict) -> dict:
+    # What docs/plans.json names an event by. The id can't be used: it
+    # differs between the Actions cache and a local database.
+    event["key"] = f"{event['source']}:{event['source_id']}"
+    return event
+
+
 def _cmd_list(args) -> None:
-    rows = query_events(args.db, order_by=args.sort)
+    rows = dedupe([_keyed(row_to_dict(r)) for r in query_events(args.db, order_by=args.sort)])
     if args.limit:
         rows = rows[: args.limit]
     for row in rows:
@@ -188,6 +200,7 @@ EXPORT_FIELDS = (
     "id", "source", "title", "start_ts", "end_ts", "venue", "address",
     "cost", "is_free", "categories", "url", "description", "images",
     "lat", "lon", "score", "score_reason", "scored_by", "date_approx", "key",
+    "also",
 )
 DESCRIPTION_LIMIT = 280
 
@@ -202,11 +215,7 @@ def _slim(event: dict) -> dict:
 
 def _cmd_export(args) -> None:
     today = date.today().isoformat()
-    events = [row_to_dict(row) for row in query_events(args.db, order_by=args.sort)]
-    for e in events:
-        # What docs/plans.json names an event by. The id can't be used: it
-        # differs between the Actions cache and a local database.
-        e["key"] = f"{e['source']}:{e['source_id']}"
+    events = [_keyed(row_to_dict(row)) for row in query_events(args.db, order_by=args.sort)]
     total = len(events)
     if not args.include_past:
         # Undated events are kept: "date TBD" is upcoming until proven otherwise.
@@ -216,6 +225,11 @@ def _cmd_export(args) -> None:
             e for e in events
             if not e["start_ts"] or (e["end_ts"] or e["start_ts"])[:10] >= today
         ]
+    # After the past-event cut, so a merged card never borrows a time or
+    # key from an occurrence that's already over.
+    merged = len(events)
+    events = dedupe(events)
+    merged -= len(events)
     if not args.full:
         events = [_slim(e) for e in events]
 
@@ -228,8 +242,13 @@ def _cmd_export(args) -> None:
         "  " + json.dumps(e, separators=(",", ":"), default=str) for e in events
     )
     out_path.write_text(f"[\n{lines}\n]\n" if events else "[]\n")
-    dropped = total - len(events)
-    note = f" ({dropped} past events dropped)" if dropped else ""
+    dropped = total - len(events) - merged
+    notes = []
+    if dropped:
+        notes.append(f"{dropped} past events dropped")
+    if merged:
+        notes.append(f"{merged} duplicates merged")
+    note = f" ({', '.join(notes)})" if notes else ""
     print(f"exported {len(events)} events to {out_path}{note}")
 
 

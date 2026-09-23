@@ -414,3 +414,18 @@ def prune_article_events(db_path: str | Path, source: str, article_ids,
                 conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
             removed += len(stale)
     return removed
+
+
+def drop_events(db_path: str | Path, source: str, keep_title) -> int:
+    """Delete a source's rows whose title `keep_title` now rejects.
+
+    For listings a fetcher has learned to skip: upserts never delete, so
+    without this the rows stored before the filter existed stay forever.
+    """
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT id, title FROM events WHERE source = ?", (source,)
+        ).fetchall()
+        doomed = [r["id"] for r in rows if not keep_title(r["title"])]
+        conn.executemany("DELETE FROM events WHERE id = ?", [(i,) for i in doomed])
+    return len(doomed)

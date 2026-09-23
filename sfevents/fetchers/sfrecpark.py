@@ -12,6 +12,20 @@ EID_RE = re.compile(r"[?&]EID=(\d+)")
 EVENT_ITEMTYPE = "schema.org/Event"
 NESTED_ITEMTYPES = ("schema.org/Place", "schema.org/PostalAddress")
 
+# The calendar mixes in listings nobody would go to: facility hours ("Cycle
+# Track Open After 6:45 PM", dozens a month) and the department's own
+# governance meetings. They aren't events, and a model scoring them against
+# "likes cycling" happily ranks them near the top.
+NOT_AN_EVENT_RE = re.compile(
+    r"^cycle track (open|closed)\b"
+    r"|\bcommittee\b|\bcommission meeting\b|^prosac$",
+    re.IGNORECASE,
+)
+
+
+def is_event(title: str) -> bool:
+    return not NOT_AN_EVENT_RE.search(title.strip())
+
 
 class _MicrodataParser(HTMLParser):
     """Pulls schema.org/Event microdata records out of the calendar page.
@@ -112,6 +126,7 @@ class SFRecParkFetcher:
     """
 
     name = "sfrecpark"
+    is_event = staticmethod(is_event)
 
     def __init__(self, months_ahead: int = 3, timeout: int = 20, today: date | None = None):
         self.months_ahead = months_ahead
@@ -144,7 +159,7 @@ class SFRecParkFetcher:
         for rec in parser.records:
             title = (rec.get("name") or "").strip()
             start = _parse_iso(rec.get("startDate"))
-            if not title or start is None:
+            if not title or start is None or not is_event(title):
                 continue
             place = rec.get("location") or {}
             addr = place.get("address") or {}

@@ -214,3 +214,14 @@ def test_row_to_dict_sets_is_free_correctly(db_path):
     rows = {row_to_dict(r)["source_id"]: row_to_dict(r) for r in query_events(db_path)}
     assert rows["free"]["is_free"] is True
     assert rows["paid"]["is_free"] is False
+
+
+def test_drop_events_removes_only_rejected_titles_of_that_source(db_path):
+    from sfevents.db import drop_events
+    upsert_events(db_path, [
+        make_event("a", "Cycle Track Open All Day"),
+        make_event("b", "Chair Yoga"),
+    ])
+    assert drop_events(db_path, "testsrc", lambda t: "Cycle" not in t) == 1
+    assert drop_events(db_path, "othersrc", lambda t: False) == 0
+    assert [r["title"] for r in query_events(db_path)] == ["Chair Yoga"]

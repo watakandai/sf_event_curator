@@ -91,6 +91,7 @@
   .carousel-count { position: absolute; bottom: 6px; right: 8px; background: rgba(0,0,0,.55); color: #fff; font-size: 11px; border-radius: 10px; padding: 1px 7px; }
   /* --- when / where --- */
   .event-when { font-size: 13px; color: var(--text); margin-bottom: 2px; }
+  .event-repeats { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
   .event-where a { color: var(--accent); text-decoration: none; font-size: 13px; }
   .event-where a:hover { text-decoration: underline; }
   /* --- pagination --- */
@@ -378,6 +379,32 @@ function rankedOrder(events) {
   return scored.concat(unscored);
 }
 
+// A weekly class or a comedian's four-night run would otherwise fill a
+// Week or Month list with the same card. The calendar grid still shows every
+// date; the list keeps the best-ranked occurrence and names the others.
+function groupRepeats(ranked) {
+  const byKey = new Map();
+  const out = [];
+  for (const e of ranked) {
+    const key = [e.source, e.title.trim().toLowerCase(), (e.venue || '').trim().toLowerCase()].join('|');
+    const first = byKey.get(key);
+    if (first) { first.repeats.push(e); continue; }
+    const card = { ...e, repeats: [] };
+    byKey.set(key, card);
+    out.push(card);
+  }
+  for (const card of out) card.repeats.sort(byStart);
+  return out;
+}
+
+function repeatsHtml(e) {
+  if (!e.repeats || !e.repeats.length) return '';
+  const SHOWN = 3;
+  const days = e.repeats.slice(0, SHOWN).map(r => shortDate(r.start_ts.slice(0, 10))).join(', ');
+  const more = e.repeats.length > SHOWN ? ` +${e.repeats.length - SHOWN} more` : '';
+  return `<div class="event-repeats">Also ${days}${more}</div>`;
+}
+
 function byStart(a, b) {
   return (a.start_ts || '').localeCompare(b.start_ts || '');
 }
@@ -645,7 +672,7 @@ function renderCalendarView(filtered) {
   }
 
   const range = scopeRange();
-  const all = range ? rankedOrder(eventsInRange(filtered, range)) : [];
+  const all = range ? groupRepeats(rankedOrder(eventsInRange(filtered, range))) : [];
   const capped = all.slice(0, PAGE_SIZE * MAX_PAGES);
   const pageItems = pageSlice(capped);
 
@@ -995,6 +1022,7 @@ function cardHtml(e) {
     <div class="event-card" data-event-id="${e.id}">
       ${mediaHtml(e)}
         <div class="event-when">${when}</div>
+      ${repeatsHtml(e)}
       <div class="event-title">${escapeHtml(e.title)}</div>
       ${locationHtml(e)}
       <div>${planBadgeHtml(e)}${scoreBadge}${annualBadge}${approxBadge}${dothebayBadge}${freeBadge}${badges}</div>
@@ -1055,7 +1083,10 @@ function localDay(d) {
 
 function resolvePlans(config, events) {
   const byKey = {};
-  for (const e of events) if (e.key) byKey[e.key] = e;
+  for (const e of events) {
+    // `also`: keys of duplicate listings merged into this card at export.
+    for (const k of [e.key, ...(e.also || [])]) if (k) byKey[k] = e;
+  }
   const today = localDay(new Date());
   const plans = [];
   for (const p of config.plans || []) {
